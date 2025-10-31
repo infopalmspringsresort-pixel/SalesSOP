@@ -1,0 +1,101 @@
+Roles & Permissions
+
+1. Admin (Super User)
+	•	Full access to all modules (enquiries, follow-ups, bookings, approvals, reports, settings).
+	•	Can create, edit, deactivate users.
+	•	Can assign/change user roles.
+	•	Can configure system permissions via Settings Panel.
+	•	Can view all audit logs.
+
+2. Manager
+	•	View all enquiries & bookings across team.
+	•	Assign/reassign enquiries.
+	•	Reopen lost enquiries.
+	•	View all team reports.
+	•	Cannot modify financial/payment details.
+
+3. Salesperson
+	•	Create & manage own enquiries.
+	•	Update enquiry status, schedule follow-ups, confirm bookings.
+	•	Can reopen their own lost enquiries.
+	•	Can view only own data & own reports.
+	•	Cannot edit bookings after accounts approval.
+
+4. Accounts
+	•	Access only booking approval & payment status sections.
+	•	Approve/reject contracts.
+	•	Update payment received fields.
+	•	Read-only access to enquiry/client details.
+
+⸻
+
+🔹 Login & Security
+	•	Each user has a unique login ID (email or mobile).
+	•	Password-based login with rules:
+	•	Min 8 characters, must include letters + numbers.
+	•	Optional OTP / SSO login.
+	•	Two-Factor Authentication (2FA) for Admin & Manager roles.
+	•	Auto session timeout after inactivity.
+
+⸻
+
+🔹 Password Reset
+	•	Forgot Password flow:
+	•	On login screen → “Forgot Password?” link.
+	•	User enters registered email/mobile.
+	•	System sends OTP or time-limited reset link (15 mins expiry).
+	•	User sets new password (with strength validation).
+	•	Change Password inside app:
+	•	Logged-in users can reset their own password anytime (must enter current password).
+	•	Admin override:
+	•	Admin can force reset for any user.
+	•	Security:
+	•	Limit OTP retries.
+	•	Notify user after password reset.
+	•	Log all reset attempts in audit trail.
+
+⸻
+
+🔹 Settings Panel (Admin-Only)
+
+Sub-panels to include:
+	1.	User & Role Management
+	•	Create / Edit / Deactivate users.
+	•	Assign/change roles.
+	•	Reset passwords.
+	•	View last login activity.
+	2.	Role Permissions Control
+	•	Configurable toggles per role (checkboxes). Examples:
+	•	Can Sales reopen lost enquiries (✅/❌).
+	•	Can Sales edit booking after approval (✅/❌).
+	•	Can Manager override Accounts (✅/❌).
+	3.	Dropdown Management
+	•	Manage enquiry sources.
+	•	Manage Lost/Cancellation/Reopen reasons.
+	•	Add/Edit/Deactivate values (without breaking history).
+	4.	Notifications & Reminders
+	•	Toggle email/SMS/push notifications.
+	•	Set follow-up reminder defaults (30 min / 1 hr / 1 day).
+	•	Escalation rules (e.g., overdue follow-ups > 3 days → notify Manager).
+	5.	Reporting Preferences
+	•	Select which reports appear on dashboard.
+	•	Control data retention (e.g., logs kept for 5 years).
+
+⸻
+
+🔹 Audit Trail
+	•	Every action logged with: User ID, Role, Timestamp, Module, Action.
+	•	Examples:
+	•	“Sales [UserID] reopened enquiry ENQ-102 on 30-Aug-2025.”
+	•	“Admin [UserID] changed role permissions (Sales reopen = Enabled).”
+	•	Logs are read-only and visible only to Admin.
+
+⸻
+
+🔹 Developer Instructions
+	•	Implement RBAC (Role-Based Access Control) at backend + frontend.
+	•	Maintain users table (ID, name, email/mobile, role_id, status).
+	•	Maintain roles table (role_id, role_name, permissions).
+	•	Middleware → check permissions before every API request.
+	•	Use soft delete (deactivation, not permanent deletion).
+	•	Ensure all sensitive operations (settings changes, approvals, password resets) are audit-logged.

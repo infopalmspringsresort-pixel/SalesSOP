@@ -1,0 +1,73 @@
+1. Status Workflow (Mandatory Sequence)
+
+The app must enforce the following enquiry status flow:
+
+➡ New → Quotation Sent → Follow Up Required → Ongoing → Converted → Booked → Closed
+↘ Lost (can occur from Quotation Sent / Follow Up Required / Ongoing / Converted)
+
+Rules:
+	•	Status updates must be manual by Sales team (via dropdown / button), not automatic.
+	•	At each update, timestamp + Salesperson name must be logged.
+	•	Enquiry cannot skip stages (e.g., cannot go from New → Booked directly).
+	•	Lost can be selected anytime before “Closed.”
+
+⸻
+
+2. Status Definitions (for app labels/help tooltips)
+	•	New → Fresh enquiry logged, no action yet.
+	•	Quotation Sent → Rates/menus sent to client.
+	•	Follow Up Required → Waiting for client response, reminder needed.
+	•	Ongoing → Active discussions, multiple revisions/negotiations happening.
+	•	Converted → Client verbally confirmed, prospect prepared.
+	•	Booked → Contract signed + advance received, verified by Accounts.
+	•	Closed → Event executed or enquiry archived.
+	•	Lost → Client did not confirm / went to competitor / enquiry expired.
+
+⸻
+
+3. Reminder / Follow-Up System
+
+Reminder Rules:
+	•	When status is set to Follow Up Required:
+	•	App must force Sales to enter next follow-up date/time.
+	•	Reminder should pop up in dashboard + send notification (email/WhatsApp optional).
+	•	When status is Ongoing:
+	•	Optional follow-up reminder allowed.
+	•	Overdue follow-ups should be highlighted in red in the dashboard.
+
+Reminder Display:
+	•	Each enquiry card/row must show:
+	•	Current Status
+	•	Last Updated Date
+	•	Next Follow-Up Date (if applicable)
+	•	Salesperson assigned
+
+⸻
+
+4. Dashboard Requirements
+	•	Filter by Status (e.g., see all “Follow Up Required” enquiries).
+	•	Follow-Up Queue → Show list of all upcoming follow-ups sorted by date/time.
+	•	Overdue Alerts → Show enquiries that missed follow-up deadline.
+	•	Conversion Funnel → (optional) show how many enquiries in each stage.
+
+⸻
+
+5. Audit & SOP Compliance
+	•	Every enquiry must have a status history log:
+	•	Date & time
+	•	Old Status → New Status
+	•	Updated By (Sales staff ID/name)
+	•	Prevents “status jumping” and ensures accountability.
+	•	Admin should be able to export enquiry history for audit.
+
+⸻
+
+🔹 Example User Flow
+	1.	Sales logs enquiry → status = New.
+	2.	Quotation sent → Sales updates status = Quotation Sent.
+	3.	Client hasn’t replied → status = Follow Up Required + reminder set for 2 days later.
+	4.	Sales follows up, client negotiating → status = Ongoing.
+	5.	Client verbally confirms → status = Converted.
+	6.	Client pays advance & signs contract → status = Booked.
+	7.	Event done → status = Closed.
+	8.	If enquiry dies anytime before booking → status = Lost.

@@ -1,0 +1,64 @@
+Provide clear, actionable reports on enquiry pipeline, booking conversions, follow-up discipline, lost reasons, and cancellations — to help management track performance and identify gaps.
+
+⸻
+
+🔹 Reporting Categories
+
+1. Enquiry Reports
+	•	Total enquiries in selected period.
+	•	Breakdown by Source (Walk-in, Call, Online, etc.).
+	•	Status Funnel:
+	•	New → Quotation Sent → Ongoing → Converted → Booked → Closed → Lost.
+	•	Conversion % (e.g., “Out of 100 enquiries, 25 booked = 25% conversion”).
+	•	Lost Reason Analysis (pie chart / bar chart).
+
+⸻
+
+2. Follow-up Reports
+	•	Follow-ups scheduled vs. completed vs. missed.
+	•	Overdue follow-ups count by salesperson.
+	•	Average response time (time between enquiry creation & first follow-up).
+	•	Follow-up effectiveness (follow-ups that led to conversions).
+
+⸻
+
+3. Booking Reports
+	•	Total Bookings confirmed in period.
+	•	Multi-day vs. single-day bookings.
+	•	Booking pipeline by status (Pending Approval / Approved / Cancelled).
+	•	Cancellation Reason Analysis.
+	•	Reopened Enquiries that became bookings.
+
+⸻
+
+4. Team Performance Reports
+	•	Enquiries handled per salesperson.
+	•	Conversion rate per salesperson.
+	•	Average follow-up completion rate per salesperson.
+	•	Top enquiry sources handled successfully.
+
+⸻
+
+5. Audit & Tracking Reports
+	•	Enquiries reopened (with reason).
+	•	Bookings revised after confirmation.
+	•	Timeline activity log (who changed status, when).
+
+⸻
+
+🔹 Reporting Features
+	1.	Filters (Date Range, Salesperson, Source, Event Type, Venue/Hall).
+	2.	Export Options (Excel / PDF).
+	3.	Visuals → Charts & graphs (Funnel, Pie, Bar, Line trends).
+	4.	Scheduled Reports → Daily/Weekly email summary to manager.
+	5.	Drill-Down → Click on report item to view underlying enquiries/bookings.
+
+⸻
+
+🔹 Developer Instructions
+	•	Reports should pull directly from enquiry, follow-up, and booking tables.
+	•	Use fixed dropdown IDs (e.g., source, lost reasons, cancellation reasons) for consistent analytics.
+	•	Keep all reports read-only with drill-down links (no editing from report).
+	•	Ensure role-based access:
+	•	Salesperson → Own data only.
+	•	Manager/Admin → Full team data.

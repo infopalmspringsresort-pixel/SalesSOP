@@ -1,0 +1,287 @@
+# ===========================================
+# Environment & Secrets
+# ===========================================
+.env
+.env.local
+.env.development
+.env.production
+.env.test
+.env*.local
+*.env
+
+# ===========================================
+# Dependencies
+# ===========================================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+.pnp
+.pnp.js
+
+# ===========================================
+# Build Outputs
+# ===========================================
+dist/
+build/
+out/
+.next/
+.nuxt/
+.output/
+.vercel/
+.turbo/
+*.tsbuildinfo
+
+# Vite
+.vite/
+vite.config.*.timestamp-*
+
+# ===========================================
+# Testing & Coverage
+# ===========================================
+coverage/
+.nyc_output/
+*.lcov
+.jest/
+test-results/
+playwright-report/
+playwright/.cache/
+*.spec.js.snap
+*.test.js.snap
+
+# ===========================================
+# IDE & Editor Files
+# ===========================================
+# Visual Studio Code
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+
+# JetBrains IDEs
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+.vim/
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+
+# ===========================================
+# OS Files
+# ===========================================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# ===========================================
+# Logs & Temporary Files
+# ===========================================
+*.log
+logs/
+*.log.*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log*
+*.tmp
+*.temp
+*.bak
+*.backup
+*.swp
+*.swo
+.cache/
+
+# ===========================================
+# Database & Session Files
+# ===========================================
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+*.db-wal
+*.db-shm
+sessions/
+*.session
+
+# ===========================================
+# Generated Files & Assets
+# ===========================================
+# PDF files
+*.pdf
+
+# Excel files
+*.xlsx
+*.xls
+*.xlsm
+
+# Generated images (if any)
+generated_images/
+temp_images/
+
+# ===========================================
+# Debug & Test Files
+# ===========================================
+# All test files
+tests/
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+**/*.spec.tsx
+test-*.ts
+test-*.tsx
+test-*.js
+**/test-*.ts
+**/test-*.tsx
+**/test-*.js
+*.test.js
+*.spec.js
+**/*-test.js
+**/*-test.ts
+
+# Debug files
+*.debug
+debug/
+**/debug-*.ts
+**/debug-*.tsx
+test-output/
+.sass-cache/
+.parcel-cache/
+
+# Test configuration
+jest.config.js
+playwright.config.ts
+package-test.json
+
+# ===========================================
+# TypeScript
+# ===========================================
+*.tsbuildinfo
+.tsbuildinfo
+
+# ===========================================
+# Sentry
+# ===========================================
+.sentryclirc
+
+# ===========================================
+# Miscellaneous
+# ===========================================
+# Package manager lock files (uncomment if you don't want to track them)
+# package-lock.json
+# yarn.lock
+# pnpm-lock.yaml
+
+# ESLint cache
+.eslintcache
+
+# Prettier cache
+.prettierignore.local
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Optional stylelint cache
+.stylelintcache
+
+# Microbundle cache
+.rpt2_cache/
+.rts2_cache_cjs/
+.rts2_cache_es/
+.rts2_cache_umd/
+
+# Optional REPL history
+.node_repl_history
+
+# Yarn Integrity file
+.yarn-integrity
+
+# ===========================================
+# Documentation Files (Markdown)
+# ===========================================
+*.md
+!README.md
+# Uncomment above and add specific .md files you want to keep:
+# !CONTRIBUTING.md
+# !CHANGELOG.md
+
+# ===========================================
+# Project Specific
+# ===========================================
+# Script outputs (if any temporary script outputs)
+scripts/output/
+scripts/temp/
+
+# Check/debug scripts (root and subdirectories)
+check-*.js
+**/check-*.ts
+**/check-*.js
+performance-check.js
+test-api-endpoints.js
+**/*-check.ts
+**/*-check.js
+
+# Attached assets (if they contain sensitive or large generated files)
+# Uncomment if you want to ignore generated files in attached_assets
+# attached_assets/generated_images/*.png
+# attached_assets/generated_images/*.jpg
+
+# Migration backups
+migrations/backup/
+*.sql.backup
+
+# ===========================================
+# Deployment & CI/CD
+# ===========================================
+.vercel
+.netlify
+.railway
+.now
+.serverless/
+.fusebox/
+.dynamodb/
+.tern-port
+

@@ -1,0 +1,129 @@
+SALES SOP
+Definitions (For First-Time Readers)
+- Enquiry No (ENQ-XXX): Serial number given to every enquiry (call, walk-in, email, WhatsApp, agent). Ensures no enquiry is missed.
+- Prospect: Internal planning sheet created by Sales for serious enquiries (pax, hall, menu). Not a contract.
+- Booking No (BOOK-XXX): Unique number given when a booking is confirmed with contract signed + advance. Linked to Enquiry No.
+- Booking Contract: Signed agreement with client confirming pax, menu, rates, advance, and terms.
+- BEO (Banquet Event Order): Instruction sheet prepared after booking confirmation + advance. Circulated to departments to execute event.
+- Amendment: Written change to booking/contract/BEO, approved as per authority levels.
+- Consumption Sheet: Signed by client during event for extras (alcohol, snacks, extended hours).
+- Guest Cash Voucher: Voucher signed by Client + Accounts + Unit Finance Controller whenever cash is collected.
+1. Purpose
+To standardize enquiry, booking, payment, execution, and billing.
+To define when each document is created and who approves it.
+To ensure written approvals at every stage.
+2. Roles & Responsibilities
+- Sales Team: Handle enquiries, quotations, prospects, booking contracts, and draft BEOs.
+- Accounts: Collects and acknowledges all payments. Verifies bookings, amendments, prepares bills, reconciles records.
+- General Manager (GM): Approves discounts beyond sales authority in writing; approves amendments in writing.
+- Managing Director (MD): Approves discounts beyond GM limit in writing; approves refunds, cancellations, royalty exemptions.
+3. Enquiry Handling
+Log every enquiry in Enquiry Register with ENQ-XXX. Enter: Enquiry Date, Client Name, Contact, Event Month, Event Date, Event, Pax, Source, Salesperson.
+Why: Ensures every enquiry is tracked.
+4. Quotation & Discounts
+Sales issues quotation using approved rate card.
+Discount Approvals:
+- Sales: May approve up to X% discount.
+- GM: Approves beyond sales authority. Written approval required (GM Discount Approval Format).
+- MD: Approves beyond GM limit. Written approval required (MD Discount Approval Format).
+Rule: All approvals must be written (signed/email).
+5. Function Prospect
+Prepared by Sales for serious enquiries. Contains tentative pax, hall, menu, AV requirements. Not binding.
+6. Booking Confirmation
+Booking confirmed only when:
+- Booking Contract (BOOK-XXX) signed (linked to Enquiry No).
+- 25% advance received and verified by Accounts.
+After confirmation: Hall blocked in calendar. 
+Booking details shared on official WhatsApp booking group.
+
+7. Banquet Event Order (BEO)
+What is BEO: Instruction sheet for departments to execute event exactly as booked.
+Prepared by Sales/Banquet Manager after contract signed + advance confirmed.
+Accounts Verification (Mandatory): Accounts must check:
+- Contract signed and linked to Enquiry No.
+- Advance received (25%).
+- Discounts approved in writing as per discount structure (Sales → GM → MD).
+- Amendments approved in writing with client acknowledgment.
+Once verified, Accounts stamps 'Checked & Approved' with date & signature.
+Circulation: Only after Accounts approval → Kitchen, Service, Housekeeping, Security, MD.
+Timeline: 72 hrs before standard events; 7 days before weddings/conferences.
+If changes: Old BEO cancelled, new BEO re-verified by Accounts before circulation.
+8. Changes & Amendments
+Sales prepares Booking Amendment Sheet (Booking No, Old vs New, Reason). 
+Client acknowledges. GM gives written approval.
+Accounts re-verifies payment & approval. Updated BEO issued; old cancelled and stamped.
+9. Function Execution
+Execute as per latest approved BEO. 
+Record final pax count with guest signature. 
+Extras logged on Consumption Sheet signed by client.
+10. Billing & Settlement
+Accounts prepares final bill. Adjust advance, add extras, show balance. 
+Balance collected before guest leaves (100% advance before event for weddings). 
+Client given copy.
+11. Refunds & Cancellations
+
+Only MD approves in writing. Refund & Cancellation Approval Format must be used.
+12. Reconciliation
+Daily: Accounts reconciles Enquiries → Bookings → Payments → Deposits → sends to MD.
+Weekly: MD reviews lost enquiries vs bookings.
+Monthly: GM submits Sales vs Actual vs Collections to MD.
+13. Zero Tolerance Rules
+
+No change in booking contract or BEO is valid without prior written approval from GM.
+Departments must execute ONLY what is written on approved BEO / Amendment Sheet.
+Verbal instructions = INVALID.
+What Qualifies as “Unapproved Change”
+Increasing or reducing pax count without approval.
+Adding or removing menu items /services.
+Allowing extra alcohol, snacks without signed Consumption Sheet.
+Giving discounts/refunds without written sanction.
+Circulating or using an Unverified BEO.
+Immediate Response
+If unapproved change is discovered:
+Event continues (guest service not interrupted).
+Incident logged in Incident Register by Accounts/GM.
+Investigation within 24 hrs to identify responsible staff.
+
+
+Punishment Policy
+
+First Offense (Minor variance, no financial loss):
+Written warning + entry in HR file.
+First Offense (Financial impact < ₹25,000):
+Salary deduction equal to loss.
+Written warning.
+Repeat Offense = Immediate termination.
+Major Offense (Financial impact ≥ ₹25,000 OR repeat offense):
+Salary recovery of full loss.
+Possible termination.
+Fraudulent Intent (pocketing money / collusion with client):
+Termination with cause.
+FIR/legal action if large sums are involved.
+Policy Framework (Detailed Rules)
+Policy 1: BEO Circulation
+BEO circulated only after contract signed + advance confirmed + Accounts approval. Deadlines: 72 hrs (standard), 7 days (weddings). Old BEOs cancelled and stamped.
+Policy 2: Booking & BEO Amendments
+No changes valid without GM’s written approval.
+All amendments must be on Booking Amendment Sheet, signed by client & GM.
+Financial impact must be verified by Accounts.
+•	If change involves extra cost:
+o	Client must pay immediately (Accounts receipt or cash acknowledgment).
+•	If change involves discount:
+o	Must follow approval chain (Sales → GM → MD). Any discount should be approved in written as per allowed discount structure and attached to the Booking Amendment Sheet. 
+•	Accounts must re-verify every amended booking to ensure payment matches new terms and necessary approvals are attached in written. 
+
+Departments executing unapproved written changes share liability for financial loss.
+
+Policy 3: Guest Cash Voucher
+All cash received from client must be recorded in a Cash Receipt Voucher, signed by:
+- Client
+- Accounts (Collector)
+-Unit finance controller
+All three signatures are necessary and voucher must be shown at the time of cash handover. 
+No staff outside Accounts may collect payments.
+Policy 4: Communication for Sales & Bookings
+All communication via official hotel phone/email only. No personal channels. Corporate clients: All on email with MD + Accounts in CC. Confirmation email mandatory.
+Policy 5: Commission to Agents
+Paid only via bank transfer (NEFT/RTGS/UPI). Commission documented in contract at the time of booking, no commission will be entertained if not mentioned in booking contract. GM approves within slab, MD above. Accounts pays after event settlement. Register kept.
+Policy 6: Royalty for Events & Catering
+Applies to external vendors. Fixed %/fee by MD. Collected in advance, verified by Accounts. Vendors enter premises only with Accounts-stamped Vendor Entry Pass. Exemptions by MD in writing. Accounts maintains register.
