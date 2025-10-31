@@ -18,7 +18,10 @@ Root Directory:
   (leave EMPTY)
 
 Build Command:
-  npm install && npm run build
+  NODE_ENV=development npm install && npm run build
+  
+  ⚠️ CRITICAL: Update this in Render Dashboard Settings!
+  The NODE_ENV=development ensures devDependencies (vite, esbuild) are installed.
 
 Start Command:
   npm start
