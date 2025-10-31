@@ -63,7 +63,9 @@ app.use((req, res, next) => {
 
 (async () => {
   try {
+    console.log('Starting server initialization...');
     const server = await registerRoutes(app);
+    console.log('Routes registered, server created');
 
     // Sentry error handler (must be before other error handlers)
     app.use(sentryErrorHandler());
@@ -80,10 +82,13 @@ app.use((req, res, next) => {
     // importantly only setup vite in development and after
     // setting up all the other routes so the catch-all route
     // doesn't interfere with the other routes
+    console.log('Setting up static file serving...');
     if (app.get("env") === "development") {
       await setupVite(app, server);
+      console.log('Vite setup complete');
     } else {
       serveStatic(app);
+      console.log('Static file serving configured');
     }
 
     // ALWAYS serve the app on the port specified in the environment variable PORT
@@ -95,7 +100,9 @@ app.use((req, res, next) => {
     // Use localhost only in development
     const host = process.env.NODE_ENV === 'production' ? '0.0.0.0' : 'localhost';
     
+    console.log(`Attempting to listen on ${host}:${port}...`);
     server.listen(port, host, () => {
+      console.log(`✅ Server is now listening on ${host}:${port}`);
       log(`serving on ${host}:${port}`);
       
       // Start session cleanup
@@ -110,8 +117,11 @@ app.use((req, res, next) => {
       }
     });
 
+    console.log('Server startup sequence completed');
+
   } catch (error) {
-    console.error('Failed to start server:', error);
+    console.error('❌ Failed to start server:', error);
+    console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace');
     process.exit(1);
   }
 })();
