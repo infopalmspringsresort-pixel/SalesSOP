@@ -145,6 +145,9 @@ export function setupAuth(app: Express) {
 
         return done(null, user);
       } catch (error) {
+        console.error('Login error:', error);
+        console.error('Error details:', error instanceof Error ? error.message : String(error));
+        console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace');
         return done(error);
       }
     }
@@ -208,13 +211,17 @@ export function setupAuth(app: Express) {
   app.post('/api/auth/login', (req, res, next) => {
     passport.authenticate('local', (err: any, user: any, info: any) => {
       if (err) {
-        return res.status(500).json({ message: 'Authentication error' });
+        console.error('Login authentication error:', err);
+        console.error('Error message:', err?.message);
+        console.error('Error stack:', err?.stack);
+        return res.status(500).json({ message: 'Authentication error', details: process.env.NODE_ENV === 'development' ? err.message : undefined });
       }
       if (!user) {
         return res.status(401).json({ message: info?.message || 'Authentication failed' });
       }
       req.logIn(user, (err) => {
         if (err) {
+          console.error('Login session error:', err);
           return res.status(500).json({ message: 'Login error' });
         }
         return res.json({ message: 'Login successful', user: { id: user.id, email: user.email } });
