@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: sales-sop-generator
+    env: node
+    region: singapore
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      # Add these environment variables in Render Dashboard:
+      # MONGODB_URI
+      # MONGODB_DB_NAME
+      # SESSION_SECRET
+      # SMTP_HOST
+      # SMTP_PORT
+      # SMTP_SECURE
+      # SMTP_USER
+      # SMTP_PASS
+      # MAIL_FROM
+      # MAIL_FROM_NAME
+      # SENTRY_DSN (optional)
+

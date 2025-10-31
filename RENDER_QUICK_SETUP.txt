@@ -1,0 +1,84 @@
+══════════════════════════════════════════════════════════════
+   RENDER.COM QUICK SETUP - COPY & PASTE VALUES
+══════════════════════════════════════════════════════════════
+
+Name:
+  SalesSOP
+
+Language:
+  Node
+
+Branch:
+  main
+
+Region:
+  Oregon (US West)  OR  Singapore (recommended for India)
+
+Root Directory:
+  (leave EMPTY)
+
+Build Command:
+  npm install && npm run build
+
+Start Command:
+  npm start
+
+══════════════════════════════════════════════════════════════
+   ENVIRONMENT VARIABLES (Add after creating service)
+══════════════════════════════════════════════════════════════
+
+Go to: Environment → Add Environment Variable
+
+Required Variables:
+
+1. NODE_ENV = production
+
+2. PORT = 10000
+   (Render sets this automatically, but good to specify)
+
+3. MONGODB_URI = mongodb+srv://infopalmspringsresort_db_user:GpZGicGQMjkuBKwg@slaessop.u5uwkci.mongodb.net/?appName=SlaesSOP
+
+4. MONGODB_DB_NAME = PALMSPRINGDB
+
+5. SESSION_SECRET = [GENERATE STRONG RANDOM STRING]
+   Use: openssl rand -base64 32
+   Or: https://randomkeygen.com/
+
+6. SMTP_HOST = smtp.gmail.com
+
+7. SMTP_PORT = 465
+
+8. SMTP_SECURE = true
+
+9. SMTP_USER = info.palmspringsresort@gmail.com
+
+10. SMTP_PASS = jbnsxlwcabaoyxzv
+
+11. MAIL_FROM = info.palmspringsresort@gmail.com
+
+12. MAIL_FROM_NAME = Palm Springs
+
+Optional:
+13. SENTRY_DSN = (your sentry DSN if using)
+
+══════════════════════════════════════════════════════════════
+   AFTER DEPLOYMENT
+══════════════════════════════════════════════════════════════
+
+1. Wait for build to complete (5-10 minutes first time)
+
+2. Your app will be live at:
+   https://sales-sop.onrender.com
+   (URL will be your service name)
+
+3. Seed database:
+   - Use Render Shell or run locally pointing to production DB
+   - npm run mongo:seed:roles
+   - npm run mongo:seed:admin
+
+4. Test login:
+   - Email: md.palmspringsresort@gmail.com
+   - Password: pass123
+
+══════════════════════════════════════════════════════════════
+
