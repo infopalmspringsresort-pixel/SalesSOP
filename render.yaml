@@ -11,6 +11,8 @@ services:
         value: production
       - key: PORT
         value: 10000
+      - key: DB_PROVIDER
+        value: mongo
       # Add these environment variables in Render Dashboard:
       # MONGODB_URI
       # MONGODB_DB_NAME
