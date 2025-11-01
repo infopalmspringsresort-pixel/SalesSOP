@@ -322,6 +322,7 @@ export const venueRentalItemSchema = z.object({
 export const roomPackageSchema = z.object({
   category: z.string(), // e.g., "Standard Room", "Deluxe Room"
   rate: z.number(), // Room rate
+  numberOfRooms: z.union([z.number().min(1, "Number of rooms must be at least 1"), z.null()]).optional(), // Number of rooms
 });
 
 // Main Quotation Schema

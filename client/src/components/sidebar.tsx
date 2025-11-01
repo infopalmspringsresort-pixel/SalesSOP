@@ -19,6 +19,8 @@ import {
   Calendar,
   Utensils,
   Building,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from "lucide-react";
 
 const navigation = [
@@ -34,9 +36,10 @@ const navigation = [
 
 interface SidebarContentProps {
   onItemClick?: () => void;
+  isCollapsed?: boolean;
 }
 
-function SidebarContent({ onItemClick }: SidebarContentProps) {
+function SidebarContent({ onItemClick, isCollapsed = false }: SidebarContentProps) {
   const [location] = useLocation();
   const { user } = useAuth() as { user: User | undefined };
   const queryClient = useQueryClient();
@@ -84,24 +87,35 @@ function SidebarContent({ onItemClick }: SidebarContentProps) {
   return (
     <div className="flex flex-col h-full bg-white">
       <div className="p-4 border-b border-gray-200">
-        <div className="flex items-center space-x-2 p-2 bg-gray-50 rounded-lg">
-          <div className="w-8 h-8 bg-primary rounded-full flex items-center justify-center">
-            <span className="text-xs font-semibold text-white">
-              {getInitials(actualUser?.firstName, actualUser?.lastName)}
-            </span>
+        {!isCollapsed && (
+          <div className="flex items-center space-x-2 p-2 bg-gray-50 rounded-lg">
+            <div className="w-8 h-8 bg-primary rounded-full flex items-center justify-center">
+              <span className="text-xs font-semibold text-white">
+                {getInitials(actualUser?.firstName, actualUser?.lastName)}
+              </span>
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-gray-900 truncate">
+                {actualUser?.firstName || actualUser?.lastName ? 
+                  `${actualUser.firstName || ''} ${actualUser.lastName || ''}`.trim() : 
+                  'User'
+                }
+              </p>
+              <p className="text-xs text-gray-500 truncate">
+                {actualUser?.role?.displayName || actualUser?.role?.name || 'User'}
+              </p>
+            </div>
           </div>
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium text-gray-900 truncate">
-              {actualUser?.firstName || actualUser?.lastName ? 
-                `${actualUser.firstName || ''} ${actualUser.lastName || ''}`.trim() : 
-                'User'
-              }
-            </p>
-            <p className="text-xs text-gray-500 truncate">
-              {actualUser?.role?.displayName || actualUser?.role?.name || 'User'}
-            </p>
+        )}
+        {isCollapsed && (
+          <div className="flex justify-center">
+            <div className="w-8 h-8 bg-primary rounded-full flex items-center justify-center">
+              <span className="text-xs font-semibold text-white">
+                {getInitials(actualUser?.firstName, actualUser?.lastName)}
+              </span>
+            </div>
           </div>
-        </div>
+        )}
       </div>
       
       <nav className="flex-1 p-3">
@@ -115,6 +129,7 @@ function SidebarContent({ onItemClick }: SidebarContentProps) {
                   className={cn(
                     "flex items-center space-x-3 px-3 py-3 rounded-lg text-sm font-medium transition-colors",
                     "min-h-[44px] touch-manipulation", // Touch-friendly minimum size
+                    isCollapsed && "justify-center", // Center icons when collapsed
                     isActive
                       ? "bg-primary text-white"
                       : "text-gray-700 hover:bg-gray-100 hover:text-gray-900 active:bg-gray-200"
@@ -124,12 +139,13 @@ function SidebarContent({ onItemClick }: SidebarContentProps) {
                   aria-label={`Navigate to ${item.name}`}
                   role="menuitem"
                   tabIndex={0}
+                  title={isCollapsed ? item.name : undefined}
                 >
                   <item.icon className={cn(
                     "w-5 h-5 flex-shrink-0", // Slightly larger icons for mobile
                     isActive ? "text-white" : "text-gray-500"
                   )} />
-                  <span className="truncate font-medium">{item.name}</span>
+                  {!isCollapsed && <span className="truncate font-medium">{item.name}</span>}
                 </Link>
               </li>
             );
@@ -160,13 +176,17 @@ function SidebarContent({ onItemClick }: SidebarContentProps) {
                   window.location.href = '/api/auth/logout';
                 }
               }}
-              className="w-full justify-start text-gray-700 hover:bg-red-50 hover:text-red-600 active:bg-red-100 text-sm font-medium px-3 py-3 rounded-lg min-h-[44px] touch-manipulation"
+              className={cn(
+                "w-full justify-start text-gray-700 hover:bg-red-50 hover:text-red-600 active:bg-red-100 text-sm font-medium px-3 py-3 rounded-lg min-h-[44px] touch-manipulation",
+                isCollapsed && "justify-center"
+              )}
               data-testid="button-logout"
               aria-label="Sign out of the application"
               role="menuitem"
+              title={isCollapsed ? "Sign Out" : undefined}
             >
-              <LogOut className="w-5 h-5 mr-3 flex-shrink-0" />
-              <span className="truncate font-medium">Sign Out</span>
+              <LogOut className="w-5 h-5 flex-shrink-0" />
+              {!isCollapsed && <span className="truncate font-medium ml-3">Sign Out</span>}
             </Button>
           </li>
         </ul>
@@ -177,6 +197,17 @@ function SidebarContent({ onItemClick }: SidebarContentProps) {
 
 export default function Sidebar() {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(() => {
+    // Load from localStorage
+    const saved = localStorage.getItem('sidebarCollapsed');
+    return saved === 'true';
+  });
+
+  const toggleSidebar = () => {
+    const newState = !isCollapsed;
+    setIsCollapsed(newState);
+    localStorage.setItem('sidebarCollapsed', String(newState));
+  };
 
   return (
     <>
@@ -205,8 +236,28 @@ export default function Sidebar() {
       </div>
 
       {/* Desktop Sidebar */}
-      <aside className="hidden lg:flex w-64 bg-card border-r border-border shadow-sm flex-col">
-        <SidebarContent />
+      <aside className={cn(
+        "hidden lg:flex bg-card border-r border-border shadow-sm flex-col transition-all duration-300 ease-in-out",
+        isCollapsed ? "w-20" : "w-64"
+      )}>
+        <SidebarContent isCollapsed={isCollapsed} />
+        
+        {/* Toggle Button */}
+        <div className="p-2 border-t border-gray-200">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={toggleSidebar}
+            className="w-full hover:bg-gray-100"
+            aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+          >
+            {isCollapsed ? (
+              <PanelLeftOpen className="w-5 h-5" />
+            ) : (
+              <PanelLeftClose className="w-5 h-5" />
+            )}
+          </Button>
+        </div>
       </aside>
     </>
   );

@@ -20,6 +20,7 @@ import { format } from "date-fns";
 import BookingForm from "../../bookings/components/booking-form";
 import { getStatusColor, getStatusLabel, getValidNextStatuses } from "@/lib/status-utils";
 import EnquirySessionManagement from "@/components/ui/enquiry-session-management";
+import { TimePicker } from "@/components/ui/time-picker";
 import QuotationForm from "../../quotations/components/quotation-form";
 import QuotationHistory from "../../quotations/components/quotation-history";
 import EnquiryTransferDialog from "@/components/enquiry-transfer-dialog";
@@ -86,7 +87,8 @@ export default function EnquiryDetailsDialog({ enquiry: initialEnquiry, open, on
   
   // Session management state
   const [sessions, setSessions] = useState<any[]>([]);
-  const [showSessionEdit, setShowSessionEdit] = useState(false);
+  const [isEditingSessions, setIsEditingSessions] = useState(false);
+  const [editingSessionId, setEditingSessionId] = useState<string | null>(null); // Track which session is being edited
   
   // Session schema for editing
   const sessionSchema = z.object({
@@ -101,16 +103,28 @@ export default function EnquiryDetailsDialog({ enquiry: initialEnquiry, open, on
     specialInstructions: z.string().optional(),
   });
 
-  // Load sessions when enquiry data changes
+  // Load sessions when enquiry data changes - only load sessions with complete details
   useEffect(() => {
     if (enquiry?.sessions) {
-      const loadedSessions = enquiry.sessions.map((session: any) => ({
-        ...session,
-        sessionDate: new Date(session.sessionDate)
-      }));
+      const loadedSessions = enquiry.sessions
+        .map((session: any) => ({
+          ...session,
+          sessionDate: new Date(session.sessionDate)
+        }))
+        .filter((session: any) => {
+          // Only include sessions that have required fields filled
+          return session.sessionName && 
+                 session.venue && 
+                 session.startTime && 
+                 session.endTime;
+        });
       setSessions(loadedSessions);
+      setIsEditingSessions(false); // Exit edit mode when sessions are loaded
+      setEditingSessionId(null);
     } else {
       setSessions([]);
+      setIsEditingSessions(false);
+      setEditingSessionId(null);
     }
   }, [enquiry]);
 
@@ -136,14 +150,28 @@ export default function EnquiryDetailsDialog({ enquiry: initialEnquiry, open, on
   // Update sessions mutation
   const updateSessionsMutation = useMutation({
     mutationFn: async (updatedSessions: any[]) => {
-      const response = await apiRequest("PATCH", `/api/enquiries/${enquiry?.id}`, {
-        sessions: updatedSessions.map(session => ({
+      if (!enquiry?.id) {
+        throw new Error('Enquiry ID is required');
+      }
+      
+      // Filter out incomplete sessions (those without required fields)
+      const validSessions = updatedSessions.filter(session => 
+        session.sessionName && 
+        session.venue && 
+        session.startTime && 
+        session.endTime
+      );
+
+      const response = await apiRequest("PATCH", `/api/enquiries/${enquiry.id}`, {
+        sessions: validSessions.map(session => ({
           sessionName: session.sessionName,
           sessionLabel: session.sessionLabel || null,
           venue: session.venue,
           startTime: session.startTime,
           endTime: session.endTime,
-          sessionDate: session.sessionDate,
+          sessionDate: session.sessionDate instanceof Date 
+            ? session.sessionDate.toISOString() 
+            : new Date(session.sessionDate).toISOString(),
           paxCount: session.paxCount || 0,
           specialInstructions: session.specialInstructions || null,
         }))
@@ -156,9 +184,11 @@ export default function EnquiryDetailsDialog({ enquiry: initialEnquiry, open, on
         description: "Sessions updated successfully",
       });
       queryClient.invalidateQueries({ queryKey: [`/api/enquiries/${enquiry?.id}`] });
-      setShowSessionEdit(false);
+      queryClient.invalidateQueries({ queryKey: ["/api/enquiries"] });
+      setIsEditingSessions(false); // Exit edit mode after successful save
     },
     onError: (error: any) => {
+      console.error('Session update error:', error);
       if (error?.status === 409) {
         const msg = error?.data?.message || 'Venue collision detected with existing converted/booked record.';
         setCollisionMessage(msg);
@@ -167,7 +197,7 @@ export default function EnquiryDetailsDialog({ enquiry: initialEnquiry, open, on
       }
       toast({
         title: 'Error',
-        description: 'Failed to update sessions',
+        description: error?.message || 'Failed to update sessions. Please check that all required fields are filled.',
         variant: 'destructive',
       });
     },
@@ -193,7 +223,7 @@ export default function EnquiryDetailsDialog({ enquiry: initialEnquiry, open, on
       const response = await apiRequest("POST", "/api/follow-ups", data);
       return response.json();
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: [`/api/enquiries/${enquiry?.id}/follow-ups`] });
       queryClient.invalidateQueries({ queryKey: [`/api/enquiries/${enquiry?.id}/follow-up-stats`] });
       queryClient.invalidateQueries({ queryKey: ["/api/enquiries"] });
@@ -207,6 +237,8 @@ export default function EnquiryDetailsDialog({ enquiry: initialEnquiry, open, on
           queryClient.invalidateQueries({ queryKey: query.queryKey });
         }
       });
+      // Force refetch to update dashboard immediately
+      queryClient.refetchQueries({ queryKey: ["/api/follow-ups"] });
       setShowFollowUpForm(false);
       setNewFollowUpDate('');
       setNewFollowUpTime('12:00');
@@ -272,13 +304,45 @@ export default function EnquiryDetailsDialog({ enquiry: initialEnquiry, open, on
 
   // Handle follow-up creation
   const handleCreateFollowUp = () => {
-    if (!enquiry || !newFollowUpDate || !newFollowUpNotes) {
+    if (!enquiry || !newFollowUpDate) {
       toast({
         title: "Error", 
-        description: "Please fill in date, time, and notes",
+        description: "Please fill in date and time",
         variant: "destructive"
       });
       return;
+    }
+
+    // Validate that follow-up date is not after event date
+    if (enquiry.eventDate && newFollowUpDate) {
+      const eventDate = new Date(enquiry.eventDate);
+      eventDate.setHours(23, 59, 59, 999); // Set to end of event date
+      const followUpDate = new Date(newFollowUpDate);
+      followUpDate.setHours(23, 59, 59, 999);
+      if (followUpDate > eventDate) {
+        toast({
+          title: "Invalid Date",
+          description: "Follow-up date cannot be after the event date.",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
+    // Validate that repeat end date (if provided) is not after event date
+    if (repeatFollowUp && repeatEndDate && enquiry.eventDate) {
+      const eventDate = new Date(enquiry.eventDate);
+      eventDate.setHours(23, 59, 59, 999);
+      const endDate = new Date(repeatEndDate);
+      endDate.setHours(23, 59, 59, 999);
+      if (endDate > eventDate) {
+        toast({
+          title: "Invalid Date",
+          description: "Repeat end date cannot be after the event date.",
+          variant: "destructive",
+        });
+        return;
+      }
     }
 
     const followUpData = {
@@ -301,6 +365,54 @@ export default function EnquiryDetailsDialog({ enquiry: initialEnquiry, open, on
       const response = await apiRequest("PATCH", `/api/follow-ups/${followUpId}/complete`, {});
       return response.json();
     },
+    onMutate: async (followUpId: string) => {
+      // Cancel any outgoing refetches (so they don't overwrite our optimistic update)
+      await queryClient.cancelQueries({ queryKey: [`/api/enquiries/${enquiry?.id}/follow-ups`] });
+      await queryClient.cancelQueries({ queryKey: ['/api/follow-ups'] });
+      
+      // Snapshot the previous values
+      const previousFollowUps = queryClient.getQueryData<any[]>([`/api/enquiries/${enquiry?.id}/follow-ups`]);
+      const previousAllFollowUps = queryClient.getQueryData<any[]>(['/api/follow-ups']);
+      
+      // Optimistically update enquiry-specific follow-ups
+      if (previousFollowUps) {
+        queryClient.setQueryData([`/api/enquiries/${enquiry?.id}/follow-ups`], (old: any[] = []) =>
+          old.map((followUp: any) =>
+            followUp.id === followUpId
+              ? { ...followUp, completed: true, completedAt: new Date().toISOString() }
+              : followUp
+          )
+        );
+      }
+      
+      // Optimistically update all follow-ups (for dashboard)
+      if (previousAllFollowUps) {
+        queryClient.setQueryData(['/api/follow-ups'], (old: any[] = []) =>
+          old.map((followUp: any) =>
+            followUp.id === followUpId
+              ? { ...followUp, completed: true, completedAt: new Date().toISOString() }
+              : followUp
+          )
+        );
+      }
+      
+      // Return a context object with the snapshotted values
+      return { previousFollowUps, previousAllFollowUps };
+    },
+    onError: (err, followUpId, context) => {
+      // If the mutation fails, use the context returned from onMutate to roll back
+      if (context?.previousFollowUps) {
+        queryClient.setQueryData([`/api/enquiries/${enquiry?.id}/follow-ups`], context.previousFollowUps);
+      }
+      if (context?.previousAllFollowUps) {
+        queryClient.setQueryData(['/api/follow-ups'], context.previousAllFollowUps);
+      }
+      toast({
+        title: "Error",
+        description: "Failed to mark follow-up as completed",
+        variant: "destructive",
+      });
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [`/api/enquiries/${enquiry?.id}/follow-ups`] });
       queryClient.invalidateQueries({ queryKey: [`/api/enquiries/${enquiry?.id}/follow-up-stats`] });
@@ -308,13 +420,6 @@ export default function EnquiryDetailsDialog({ enquiry: initialEnquiry, open, on
       // Invalidate dashboard follow-up queries to sync with main dashboard
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/metrics"] });
       queryClient.invalidateQueries({ queryKey: ["/api/follow-ups"] });
-      // Force invalidate all queries that contain follow-up data
-      queryClient.getQueryCache().getAll().forEach(query => {
-        const key = query.queryKey.join('/');
-        if (key.includes('follow-up') || key.includes('enquiries')) {
-          queryClient.invalidateQueries({ queryKey: query.queryKey });
-        }
-      });
       toast({
         title: "Success",
         description: "Follow-up marked as completed",
@@ -967,50 +1072,159 @@ export default function EnquiryDetailsDialog({ enquiry: initialEnquiry, open, on
                 </p>
               </div>
               {enquiry?.status !== 'booked' && enquiry?.status !== 'lost' && (
-                <Button
-                  variant="outline"
-                  onClick={() => setShowSessionEdit(!showSessionEdit)}
-                  className="flex items-center gap-2"
-                >
-                  <Edit className="w-4 h-4" />
-                  {showSessionEdit ? 'Cancel Edit' : 'Edit Sessions'}
-                </Button>
+                <div className="flex items-center gap-2">
+                  {isEditingSessions ? (
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        // Reload sessions from enquiry to cancel edits
+                        if (enquiry?.sessions) {
+                          const loadedSessions = enquiry.sessions
+                            .map((session: any) => ({
+                              ...session,
+                              sessionDate: new Date(session.sessionDate)
+                            }))
+                            .filter((session: any) => {
+                              return session.sessionName && 
+                                     session.venue && 
+                                     session.startTime && 
+                                     session.endTime;
+                            });
+                          setSessions(loadedSessions);
+                        } else {
+                          setSessions([]);
+                        }
+                        setIsEditingSessions(false);
+                      }}
+                      className="flex items-center gap-2"
+                    >
+                      Cancel
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        // Add a new empty session and enter edit mode for ONLY this new session
+                        const newSession = {
+                          id: Math.random().toString(36).substr(2, 9),
+                          sessionName: "",
+                          sessionLabel: "",
+                          venue: "",
+                          startTime: "",
+                          endTime: "",
+                          sessionDate: enquiry?.eventDate ? new Date(enquiry.eventDate) : new Date(),
+                          paxCount: 0,
+                          specialInstructions: "",
+                        };
+                        setSessions([...sessions, newSession]);
+                        setEditingSessionId(newSession.id); // Only edit this new session
+                        setIsEditingSessions(true); // Enter edit mode
+                      }}
+                      className="flex items-center gap-2"
+                    >
+                      <Plus className="w-4 h-4" />
+                      Add Session
+                    </Button>
+                  )}
+                </div>
               )}
             </div>
 
-            {showSessionEdit ? (
-              <div className="space-y-4">
-                <EnquirySessionManagement
-                  sessions={sessions}
-                  setSessions={setSessions}
-                  eventStartDate={enquiry?.eventDate ? new Date(enquiry.eventDate).toISOString().split('T')[0] : undefined}
-                  eventEndDate={enquiry?.eventEndDate ? new Date(enquiry.eventEndDate).toISOString().split('T')[0] : undefined}
-                  eventDuration={enquiry?.eventDuration || 1}
-                />
-                <div className="flex justify-end gap-2">
-                  <Button
-                    variant="outline"
-                    onClick={() => setShowSessionEdit(false)}
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    onClick={() => updateSessionsMutation.mutate(sessions)}
-                    disabled={updateSessionsMutation.isPending}
-                  >
-                    {updateSessionsMutation.isPending ? 'Saving...' : 'Save Sessions'}
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {sessions.length > 0 ? (
-                  <div className="space-y-3">
-                    {sessions.map((session, index) => (
+            <div className="space-y-4">
+              {isEditingSessions ? (
+                // Edit Mode: Show editable form (only for the session being edited if editingSessionId is set)
+                <>
+                  <EnquirySessionManagement
+                    sessions={editingSessionId 
+                      ? sessions.filter(s => s.id === editingSessionId) 
+                      : sessions}
+                    setSessions={(newSessions) => {
+                      if (editingSessionId) {
+                        // If editing a specific session, update only that one
+                        setSessions(sessions.map(s => 
+                          s.id === editingSessionId ? newSessions[0] : s
+                        ));
+                      } else {
+                        // If adding new session or viewing all, update all sessions
+                        setSessions(newSessions);
+                      }
+                    }}
+                    eventStartDate={enquiry?.eventDate ? new Date(enquiry.eventDate).toISOString().split('T')[0] : undefined}
+                    eventEndDate={enquiry?.eventEndDate ? new Date(enquiry.eventEndDate).toISOString().split('T')[0] : undefined}
+                    eventDuration={enquiry?.eventDuration || 1}
+                    hideHeader={true}
+                    sessionStartIndex={editingSessionId 
+                      ? sessions.findIndex(s => s.id === editingSessionId)
+                      : 0}
+                  />
+                  <div className="flex justify-end gap-2 pt-4 border-t">
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setIsEditingSessions(false);
+                        // Remove any empty/incomplete sessions when canceling
+                        const validSessions = sessions.filter(s => 
+                          s.sessionName && s.venue && s.startTime && s.endTime
+                        );
+                        // Reload sessions from enquiry to restore original state
+                        if (enquiry?.sessions) {
+                          const loadedSessions = enquiry.sessions
+                            .map((session: any) => ({
+                              ...session,
+                              sessionDate: new Date(session.sessionDate)
+                            }))
+                            .filter((session: any) => {
+                              return session.sessionName && 
+                                     session.venue && 
+                                     session.startTime && 
+                                     session.endTime;
+                            });
+                          setSessions(loadedSessions);
+                        } else {
+                          setSessions(validSessions);
+                        }
+                        setEditingSessionId(null);
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      onClick={() => {
+                        // Always save all sessions (filter out incomplete ones)
+                        const validSessions = sessions.filter(s => 
+                          s.sessionName && s.venue && s.startTime && s.endTime
+                        );
+                        if (validSessions.length > 0) {
+                          updateSessionsMutation.mutate(validSessions);
+                        } else {
+                          toast({
+                            title: 'Cannot save',
+                            description: 'Please fill in all required fields for at least one session.',
+                            variant: 'destructive',
+                          });
+                        }
+                      }}
+                      disabled={updateSessionsMutation.isPending}
+                    >
+                      {updateSessionsMutation.isPending ? 'Saving...' : 'Save Session'}
+                    </Button>
+                  </div>
+                </>
+              ) : sessions.length > 0 ? (
+                // View Mode: Show session boxes (complete or incomplete)
+                <div className="space-y-3">
+                  {sessions.map((session, index) => {
+                    // Check if session is complete (has all required fields)
+                    const isComplete = session.sessionName && 
+                                      session.venue && 
+                                      session.startTime && 
+                                      session.endTime;
+                    
+                    return (
                       <Card key={session.id || index}>
                         <CardContent className="p-4">
                           <div className="flex items-start justify-between">
-                            <div className="space-y-2">
+                            <div className="flex-1 space-y-2">
                               <div className="flex items-center gap-2">
                                 <Badge variant="outline">Session {index + 1}</Badge>
                                 {enquiry?.eventDuration && enquiry.eventDuration > 1 && (
@@ -1023,54 +1237,90 @@ export default function EnquiryDetailsDialog({ enquiry: initialEnquiry, open, on
                                   </Badge>
                                 )}
                               </div>
-                              <h4 className="font-medium">{session.sessionName}</h4>
-                              {session.sessionLabel && (
-                                <p className="text-sm text-muted-foreground">{session.sessionLabel}</p>
-                              )}
-                              <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                                <div className="flex items-center gap-1">
-                                  <MapPin className="w-4 h-4" />
-                                  {session.venue}
-                                </div>
-                                <div className="flex items-center gap-1">
-                                  <Clock className="w-4 h-4" />
-                                  {session.startTime} - {session.endTime}
-                                </div>
-                                {session.paxCount > 0 && (
-                                  <div className="flex items-center gap-1">
-                                    <Users className="w-4 h-4" />
-                                    {session.paxCount} guests
+                              {isComplete ? (
+                                // Show complete session details
+                                <>
+                                  <h4 className="font-medium text-lg">{session.sessionName}</h4>
+                                  {session.sessionLabel && (
+                                    <p className="text-sm text-muted-foreground">{session.sessionLabel}</p>
+                                  )}
+                                  <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                                    <div className="flex items-center gap-1">
+                                      <MapPin className="w-4 h-4" />
+                                      <span className="font-medium">{session.venue}</span>
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                      <Clock className="w-4 h-4" />
+                                      {session.startTime} - {session.endTime}
+                                    </div>
+                                    {session.paxCount > 0 && (
+                                      <div className="flex items-center gap-1">
+                                        <Users className="w-4 h-4" />
+                                        {session.paxCount} guests
+                                      </div>
+                                    )}
                                   </div>
-                                )}
-                              </div>
-                              {session.specialInstructions && (
-                                <p className="text-sm text-muted-foreground">
-                                  <strong>Notes:</strong> {session.specialInstructions}
-                                </p>
+                                  {session.specialInstructions && (
+                                    <div className="mt-3 pt-3 border-t">
+                                      <p className="text-sm">
+                                        <strong className="text-foreground">Special Instructions:</strong>
+                                      </p>
+                                      <p className="text-sm text-muted-foreground mt-1">{session.specialInstructions}</p>
+                                    </div>
+                                  )}
+                                </>
+                              ) : (
+                                // Show empty/incomplete session
+                                <div className="text-sm text-muted-foreground italic">
+                                  Click Edit to fill in session details
+                                </div>
                               )}
                             </div>
+                            {enquiry?.status !== 'booked' && enquiry?.status !== 'lost' && (
+                              <div className="flex items-center gap-2 ml-4">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => {
+                                    // Enter edit mode to edit ONLY THIS specific session
+                                    setEditingSessionId(session.id);
+                                    setIsEditingSessions(true);
+                                  }}
+                                  className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                                  title="Edit this session"
+                                >
+                                  <Edit className="w-4 h-4" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => {
+                                    // Delete this specific session directly
+                                    const updatedSessions = sessions.filter((_, i) => i !== index);
+                                    updateSessionsMutation.mutate(updatedSessions);
+                                  }}
+                                  className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                  title="Delete session"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              </div>
+                            )}
                           </div>
                         </CardContent>
                       </Card>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-center py-8 text-muted-foreground">
-                    <Calendar className="w-12 h-12 mx-auto mb-4 text-muted-foreground/50" />
-                    <p>No sessions added yet</p>
-                    {enquiry?.status !== 'booked' && enquiry?.status !== 'lost' && (
-                      <Button
-                        variant="outline"
-                        onClick={() => setShowSessionEdit(true)}
-                        className="mt-2"
-                      >
-                        Add Sessions
-                      </Button>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
+                    );
+                  })}
+                </div>
+              ) : (
+                // Empty State
+                <div className="text-center py-8 text-muted-foreground">
+                  <Calendar className="w-12 h-12 mx-auto mb-4 text-muted-foreground/50" />
+                  <p>No sessions added yet</p>
+                  <p className="text-xs mt-1">Click "Add Session" above to create your first session</p>
+                </div>
+              )}
+            </div>
           </TabsContent>
 
           {/* Collision Dialog for Sessions Update */}
@@ -1147,25 +1397,44 @@ export default function EnquiryDetailsDialog({ enquiry: initialEnquiry, open, on
                         id="followUpDate"
                         type="date"
                         min={new Date().toISOString().split('T')[0]}
+                        max={enquiry?.eventDate ? new Date(enquiry.eventDate).toISOString().split('T')[0] : undefined}
                         value={newFollowUpDate}
-                        onChange={(e) => setNewFollowUpDate(e.target.value)}
+                        onChange={(e) => {
+                          const selectedDate = e.target.value;
+                          // Validate that selected date is not after event date
+                          if (enquiry?.eventDate && selectedDate) {
+                            const eventDateStr = new Date(enquiry.eventDate).toISOString().split('T')[0];
+                            if (selectedDate > eventDateStr) {
+                              toast({
+                                title: "Invalid Date",
+                                description: "Follow-up date cannot be after the event date.",
+                                variant: "destructive",
+                              });
+                              return;
+                            }
+                          }
+                          setNewFollowUpDate(selectedDate);
+                        }}
                         data-testid="input-new-followup-date"
                       />
+                      {enquiry?.eventDate && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Must be on or before event date: {new Date(enquiry.eventDate).toLocaleDateString()}
+                        </p>
+                      )}
                     </div>
                     <div>
                       <Label htmlFor="followUpTime">Time *</Label>
-                      <Input
+                      <TimePicker
                         id="followUpTime"
-                        type="time"
                         value={newFollowUpTime}
-                        onChange={(e) => setNewFollowUpTime(e.target.value)}
-                        data-testid="input-new-followup-time"
+                        onChange={setNewFollowUpTime}
                       />
                     </div>
                   </div>
 
                   <div>
-                    <Label htmlFor="followUpNotes">Notes *</Label>
+                    <Label htmlFor="followUpNotes">Notes</Label>
                     <Textarea
                       id="followUpNotes"
                       value={newFollowUpNotes}
@@ -1205,10 +1474,31 @@ export default function EnquiryDetailsDialog({ enquiry: initialEnquiry, open, on
                           id="repeatEndDate"
                           type="date"
                           min={new Date().toISOString().split('T')[0]}
+                          max={enquiry?.eventDate ? new Date(enquiry.eventDate).toISOString().split('T')[0] : undefined}
                           value={repeatEndDate}
-                          onChange={(e) => setRepeatEndDate(e.target.value)}
+                          onChange={(e) => {
+                            const selectedDate = e.target.value;
+                            // Validate that selected date is not after event date
+                            if (enquiry?.eventDate && selectedDate) {
+                              const eventDateStr = new Date(enquiry.eventDate).toISOString().split('T')[0];
+                              if (selectedDate > eventDateStr) {
+                                toast({
+                                  title: "Invalid Date",
+                                  description: "Repeat end date cannot be after the event date.",
+                                  variant: "destructive",
+                                });
+                                return;
+                              }
+                            }
+                            setRepeatEndDate(selectedDate);
+                          }}
                           data-testid="input-repeat-end-date"
                         />
+                        {enquiry?.eventDate && (
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Must be on or before event date: {new Date(enquiry.eventDate).toLocaleDateString()}
+                          </p>
+                        )}
                       </div>
                     </div>
                   )}

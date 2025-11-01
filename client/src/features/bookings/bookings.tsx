@@ -24,7 +24,6 @@ export default function Bookings() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [dateFilter, setDateFilter] = useState("all");
   const [eventTypeFilter, setEventTypeFilter] = useState("all");
-  const [amountFilter, setAmountFilter] = useState("all");
   const [selectedBooking, setSelectedBooking] = useState<any | null>(null);
   const [showBookingDetails, setShowBookingDetails] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
@@ -81,9 +80,7 @@ export default function Bookings() {
   };
 
   const { data: bookings = [], isLoading: bookingsLoading } = useQuery<any[]>({
-    queryKey: statusFilter !== "all" 
-      ? ["/api/bookings", { status: statusFilter }]
-      : ["/api/bookings"],
+    queryKey: ["/api/bookings"],
     enabled: isAuthenticated,
   });
 
@@ -122,9 +119,12 @@ export default function Bookings() {
       if (!matchesSearch) return false;
     }
     
-    // Status filter
-    if (statusFilter !== "all" && booking.status !== statusFilter) {
-      return false;
+    // Status filter - handle null/undefined status (default to 'booked')
+    if (statusFilter !== "all") {
+      const bookingStatus = booking.status || 'booked';
+      if (bookingStatus !== statusFilter) {
+        return false;
+      }
     }
 
     // Event type filter
@@ -135,22 +135,28 @@ export default function Bookings() {
     // Date filter
     if (dateFilter !== "all" && booking.eventDate) {
       const eventDate = new Date(booking.eventDate);
+      // Check if date is valid
+      if (isNaN(eventDate.getTime())) return false;
+      
       const today = new Date();
+      today.setHours(0, 0, 0, 0);
       const tomorrow = new Date(today);
       tomorrow.setDate(today.getDate() + 1);
+      eventDate.setHours(0, 0, 0, 0);
       
       switch (dateFilter) {
         case "today":
-          if (eventDate.toDateString() !== today.toDateString()) return false;
+          if (eventDate.getTime() !== today.getTime()) return false;
           break;
         case "tomorrow":
-          if (eventDate.toDateString() !== tomorrow.toDateString()) return false;
+          if (eventDate.getTime() !== tomorrow.getTime()) return false;
           break;
         case "this_week":
           const weekStart = new Date(today);
           weekStart.setDate(today.getDate() - today.getDay());
           const weekEnd = new Date(weekStart);
           weekEnd.setDate(weekStart.getDate() + 6);
+          weekEnd.setHours(23, 59, 59, 999);
           if (eventDate < weekStart || eventDate > weekEnd) return false;
           break;
         case "next_week":
@@ -158,6 +164,7 @@ export default function Bookings() {
           nextWeekStart.setDate(today.getDate() + (7 - today.getDay()));
           const nextWeekEnd = new Date(nextWeekStart);
           nextWeekEnd.setDate(nextWeekStart.getDate() + 6);
+          nextWeekEnd.setHours(23, 59, 59, 999);
           if (eventDate < nextWeekStart || eventDate > nextWeekEnd) return false;
           break;
         case "this_month":
@@ -166,26 +173,10 @@ export default function Bookings() {
         case "next_month":
           const nextMonth = new Date(today);
           nextMonth.setMonth(today.getMonth() + 1);
+          nextMonth.setDate(1);
+          const nextMonthEnd = new Date(nextMonth.getFullYear(), nextMonth.getMonth() + 1, 0);
+          nextMonthEnd.setHours(23, 59, 59, 999);
           if (eventDate.getMonth() !== nextMonth.getMonth() || eventDate.getFullYear() !== nextMonth.getFullYear()) return false;
-          break;
-      }
-    }
-    
-    // Amount filter
-    if (amountFilter !== "all" && booking.totalQuotedAmount) {
-      const amount = booking.totalQuotedAmount;
-      switch (amountFilter) {
-        case "under_50k":
-          if (amount >= 50000) return false;
-          break;
-        case "50k_to_100k":
-          if (amount < 50000 || amount >= 100000) return false;
-          break;
-        case "100k_to_500k":
-          if (amount < 100000 || amount >= 500000) return false;
-          break;
-        case "above_500k":
-          if (amount < 500000) return false;
           break;
       }
     }
@@ -214,13 +205,12 @@ export default function Bookings() {
       <Sidebar />
       
       <main className="flex-1 overflow-y-auto h-screen touch-pan-y" style={{ paddingTop: '0' }}>
-        <header className="bg-card border-b border-border px-6 py-4 shadow-sm">
-          <div className="flex items-center justify-between">
-            <div className="w-12 lg:w-0"></div>
-            <h2 className="text-2xl font-semibold text-foreground text-center flex-1">
-              Bookings
-            </h2>
-            <div className="w-12 lg:w-0"></div>
+        <header className="bg-card border-b border-border px-4 lg:px-6 py-3 lg:py-4 shadow-sm">
+          <div className="flex items-center justify-center">
+            <div className="text-center">
+              <h1 className="text-xl lg:text-2xl font-bold text-foreground">Bookings</h1>
+              <p className="text-sm text-muted-foreground hidden lg:block">View and manage all confirmed bookings</p>
+            </div>
           </div>
         </header>
 
@@ -250,7 +240,7 @@ export default function Bookings() {
                         <Button variant="outline" size="sm" className="relative">
                           <Filter className="w-4 h-4 mr-2" />
                           Filters
-                          {(statusFilter !== "all" || eventTypeFilter !== "all" || dateFilter !== "all" || amountFilter !== "all") && (
+                          {(statusFilter !== "all" || eventTypeFilter !== "all" || dateFilter !== "all") && (
                             <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full"></div>
                           )}
                         </Button>
@@ -322,50 +312,25 @@ export default function Bookings() {
                               </SelectContent>
                             </Select>
                           </div>
-                          
-                          <div>
-                            <Label className="text-sm font-medium mb-2 block">Amount Range</Label>
-                            <Select value={amountFilter} onValueChange={setAmountFilter}>
-                              <SelectTrigger className="w-full">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="all">All Amounts</SelectItem>
-                                <SelectItem value="under_50k">Under ₹50K</SelectItem>
-                                <SelectItem value="50k_to_100k">₹50K - ₹1L</SelectItem>
-                                <SelectItem value="100k_to_500k">₹1L - ₹5L</SelectItem>
-                                <SelectItem value="above_500k">Above ₹5L</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
                         </div>
                         
                         <div className="p-4 border-t bg-background sticky bottom-0">
-                          <div className="flex justify-between">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                setSearchQuery("");
-                                setStatusFilter("all");
-                                setEventTypeFilter("all");
-                                setDateFilter("all");
-                                setAmountFilter("all");
-                              }}
-                            >
-                              Clear All
-                            </Button>
-                            <Button
-                              size="sm"
-                              onClick={() => setShowFilters(false)}
-                            >
-                              Apply Filters
-                            </Button>
-                          </div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="w-full"
+                            onClick={() => {
+                              setSearchQuery("");
+                              setStatusFilter("all");
+                              setEventTypeFilter("all");
+                              setDateFilter("all");
+                            }}
+                          >
+                            Clear All
+                          </Button>
                         </div>
                       </PopoverContent>
                     </Popover>
-                    <Badge className="bg-blue-100 text-blue-800">{filteredBookings.length} Total</Badge>
                   </div>
                 </div>
               </div>
@@ -388,40 +353,40 @@ export default function Bookings() {
               ) : (
                 <>
                   {/* Desktop Table View */}
-                  <div className="hidden lg:block overflow-x-auto">
+                  <div className="hidden lg:block overflow-x-auto rounded-xl border border-border shadow-sm">
                     <table className="w-full">
                       <thead>
-                        <tr className="border-b border-border bg-muted/60">
-                          <th className="text-left p-4 text-sm font-semibold text-muted-foreground tracking-wide">Booking #</th>
-                          <th className="text-left p-4 text-sm font-semibold text-muted-foreground tracking-wide">Client Details</th>
-                          <th className="text-left p-4 text-sm font-semibold text-muted-foreground tracking-wide">Event Details</th>
-                          <th className="text-left p-4 text-sm font-semibold text-muted-foreground tracking-wide">Salesperson</th>
-                          <th className="text-left p-4 text-sm font-semibold text-muted-foreground tracking-wide">Status</th>
+                        <tr className="bg-gradient-to-r from-gray-50 to-gray-100 border-b-2 border-border">
+                          <th className="text-left px-6 py-4 text-sm font-bold text-foreground tracking-wide">Booking #</th>
+                          <th className="text-left px-6 py-4 text-sm font-bold text-foreground tracking-wide">Client Details</th>
+                          <th className="text-left px-6 py-4 text-sm font-bold text-foreground tracking-wide">Event Details</th>
+                          <th className="text-left px-6 py-4 text-sm font-bold text-foreground tracking-wide">Salesperson</th>
+                          <th className="text-left px-6 py-4 text-sm font-bold text-foreground tracking-wide">Status</th>
                         </tr>
                       </thead>
                       <tbody>
                         {filteredBookings.map((booking) => {
                           
                           return (
-                            <tr key={booking.id} className="border-b border-border hover:bg-muted/30 cursor-pointer transition-colors duration-150"
+                            <tr key={booking.id} className="border-b border-border hover:bg-gradient-to-r hover:from-blue-50/50 hover:to-transparent cursor-pointer transition-all duration-200 group"
                                 onClick={() => handleBookingClick(booking)}>
-                              <td className="p-4 align-top">
-                                <div className="text-xs text-muted-foreground font-mono" data-testid={`booking-number-${booking.id}`}>
+                              <td className="px-6 py-4 align-top">
+                                <div className="text-xs text-muted-foreground font-mono bg-gray-100 px-2 py-1 rounded-md font-semibold" data-testid={`booking-number-${booking.id}`}>
                                   {booking.bookingNumber}
                                 </div>
-                                <div className="text-xs text-muted-foreground">
+                                <div className="text-xs text-muted-foreground mt-1 font-medium">
                                   From {booking.enquiryNumber}
                                 </div>
                               </td>
-                              <td className="p-4 align-top">
-                                <div className="text-base font-semibold text-foreground leading-tight mb-1">{booking.clientName}</div>
-                                <div className="text-xs text-muted-foreground">{booking.contactNumber}</div>
+                              <td className="px-6 py-4 align-top">
+                                <div className="text-sm font-bold text-foreground leading-tight mb-1 group-hover:text-primary transition-colors" data-testid={`booking-client-${booking.id}`}>{booking.clientName}</div>
+                                <div className="text-xs text-muted-foreground font-medium">{booking.contactNumber}</div>
                                 {booking.email && (
                                   <div className="text-xs text-muted-foreground">{booking.email}</div>
                                 )}
                               </td>
-                              <td className="p-4 align-top">
-                                <div className="text-sm text-foreground">
+                              <td className="px-6 py-4 align-top">
+                                <div className="text-sm font-semibold text-foreground mb-1">
                                   {formatDate(booking.eventDate)}
                                   {booking.eventDuration > 1 && booking.eventEndDate && (
                                     <span className="text-xs text-muted-foreground ml-2">
@@ -435,15 +400,15 @@ export default function Bookings() {
                                   </div>
                                 )}
                                 {(booking.eventStartTime || booking.eventEndTime) && (
-                                  <div className="text-xs text-muted-foreground">
+                                  <div className="text-xs text-muted-foreground font-medium">
                                     {booking.eventStartTime} - {booking.eventEndTime || 'TBD'}
                                   </div>
                                 )}
-                                <div className="text-xs text-muted-foreground">
+                                <div className="text-xs text-muted-foreground font-medium">
                                   {booking.confirmedPax} pax • {booking.eventType?.replace('_', ' ') || 'Event'}
                                 </div>
                               </td>
-                              <td className="p-4 align-top">
+                              <td className="px-6 py-4 align-top">
                                 <div className="text-sm text-foreground">
                                   {booking.salesperson?.firstName && booking.salesperson?.lastName ? 
                     `${booking.salesperson.firstName} ${booking.salesperson.lastName}` : 
@@ -461,7 +426,7 @@ export default function Bookings() {
                                   </div>
                                 )}
                               </td>
-                              <td className="p-4 align-top">
+                              <td className="px-6 py-4 align-top">
                                 <Badge className={getStatusColor(booking.status || 'booked')}>
                                   {getStatusLabel(booking.status || 'booked')}
                                 </Badge>

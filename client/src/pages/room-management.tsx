@@ -153,8 +153,8 @@ export default function RoomManagement() {
               </SheetContent>
             </Sheet>
             
-            <div className="flex items-center gap-4">
-              <div>
+            <div className="flex-1 flex justify-center">
+              <div className="text-center">
                 <h1 className="text-xl lg:text-2xl font-bold text-foreground">Room & Venue Management</h1>
                 <p className="text-sm text-muted-foreground hidden lg:block">Manage room types, venues, and package-venue mappings for quotations</p>
               </div>

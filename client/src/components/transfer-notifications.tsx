@@ -227,27 +227,31 @@ export default function TransferNotifications() {
         <CardContent className="space-y-3">
           {pendingTransfers.map((transfer) => (
             <div key={transfer.id} className="flex items-center justify-between p-3 bg-white rounded-lg border">
-              <div className="flex items-center space-x-3">
+              <div className="flex items-center space-x-3 flex-1">
                 {getStatusIcon(transfer.status)}
-                <div>
-                  <div className="flex items-center space-x-2">
-                    <User className="w-4 h-4 text-muted-foreground" />
-                    <span className="font-medium">
-                      {transfer.fromUser?.firstName} {transfer.fromUser?.lastName}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center space-x-2 mb-1">
+                    <User className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                    <span className="font-medium text-sm">
+                      {transfer.fromUser?.firstName && transfer.fromUser?.lastName 
+                        ? `${transfer.fromUser.firstName} ${transfer.fromUser.lastName}`
+                        : transfer.fromUser?.email || 'Unknown User'}
                     </span>
-                    <ArrowRight className="w-4 h-4 text-muted-foreground" />
+                    <ArrowRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
                     <span className="text-sm text-muted-foreground">You</span>
                   </div>
-                  <div className="text-sm text-muted-foreground">
-                    {transfer.enquiry?.enquiryNumber} - {transfer.enquiry?.clientName}
-                  </div>
+                  {transfer.enquiry && (
+                    <div className="text-sm font-medium text-foreground mb-1">
+                      {transfer.enquiry.enquiryNumber || 'N/A'} - {transfer.enquiry.clientName || 'N/A'}
+                    </div>
+                  )}
                   <div className="flex items-center space-x-4 text-xs text-muted-foreground mt-1">
                     <div className="flex items-center space-x-1">
                       <Clock className="w-3 h-3" />
                       <span>{format(new Date(transfer.requestedAt), 'MMM dd, yyyy HH:mm')}</span>
                     </div>
                     {transfer.transferReason && (
-                      <div>
+                      <div className="truncate max-w-xs">
                         <span className="font-medium">Reason:</span> {transfer.transferReason}
                       </div>
                     )}

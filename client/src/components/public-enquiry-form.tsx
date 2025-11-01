@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { CheckCircle, Send, User, Phone, Mail, MapPin, MessageSquare } from "lucide-react";
 import { z } from "zod";
+import { CityInputAutocomplete } from "@/components/ui/city-autocomplete";
 
 // Simplified schema for public enquiry form
 const publicEnquirySchema = z.object({
@@ -174,7 +175,11 @@ export default function PublicEnquiryForm({ onSuccess, onError }: PublicEnquiryF
                     City
                   </FormLabel>
                   <FormControl>
-                    <Input placeholder="Enter your city (optional)" {...field} />
+                    <CityInputAutocomplete
+                      value={field.value || ""}
+                      onChange={field.onChange}
+                      placeholder="Select or type city (optional)"
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>

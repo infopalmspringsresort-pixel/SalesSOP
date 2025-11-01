@@ -3,7 +3,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import Sidebar from "@/components/sidebar";
 import { BookingCalendar, VenueCalendarGrid } from "@/features/calendar";
-import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Calendar, MapPin } from "lucide-react";
 
 export default function CalendarPage() {
@@ -47,54 +47,36 @@ export default function CalendarPage() {
     <div className="flex h-screen bg-background">
       <Sidebar />
       <div className="flex-1 overflow-auto h-screen touch-pan-y">
-        <div className="p-4 lg:p-6 space-y-4 lg:space-y-6 pb-20 lg:pb-6">
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between w-full">
-              <div className="w-12 lg:w-0"></div>
-              <div className="flex flex-col items-center flex-1">
-                <div className="flex items-center space-x-3">
-                  <div className="w-8 h-8 lg:w-10 lg:h-10 bg-gradient-to-br from-primary to-primary/80 rounded-lg flex items-center justify-center">
-                    <Calendar className="w-4 h-4 lg:w-5 lg:h-5 text-white" />
-                  </div>
-                  <h1 className="text-xl lg:text-2xl xl:text-3xl font-bold text-foreground">
-                    {viewMode === 'bookings' ? 'Bookings Calendar' : 'Venue Calendar'}
-                  </h1>
-                </div>
-                <p className="text-xs lg:text-sm xl:text-base text-muted-foreground mt-1 text-center">
-                  {viewMode === 'bookings' 
-                    ? 'View and manage all bookings in a comprehensive sortable table with filters'
-                    : 'View venue bookings across all locations with timeline view'
-                  }
-                </p>
-              </div>
-            </div>
-            
-            {/* View Toggle */}
-            <div className="flex items-center gap-2 w-full lg:w-auto">
-              <Button
-                variant={viewMode === 'bookings' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setViewMode('bookings')}
-                className="flex items-center gap-2 flex-1 lg:flex-none min-h-[44px] touch-manipulation"
-              >
-                <Calendar className="w-4 h-4" />
-                <span className="hidden sm:inline">Bookings</span>
-                <span className="sm:hidden">Bookings</span>
-              </Button>
-              <Button
-                variant={viewMode === 'venues' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setViewMode('venues')}
-                className="flex items-center gap-2 flex-1 lg:flex-none min-h-[44px] touch-manipulation"
-              >
-                <MapPin className="w-4 h-4" />
-                <span className="hidden sm:inline">Venues</span>
-                <span className="sm:hidden">Venues</span>
-              </Button>
+        <header className="bg-card border-b border-border px-4 lg:px-6 py-3 lg:py-4 shadow-sm">
+          <div className="flex items-center justify-center">
+            <div className="text-center">
+              <h1 className="text-xl lg:text-2xl font-bold text-foreground">Bookings Calendar</h1>
+              <p className="text-sm text-muted-foreground hidden lg:block">View and manage all bookings in a comprehensive sortable table with filters</p>
             </div>
           </div>
+        </header>
 
-          {viewMode === 'bookings' ? <BookingCalendar /> : <VenueCalendarGrid />}
+        <div className="p-4 lg:p-6 space-y-4 lg:space-y-6 pb-20 lg:pb-6">
+          <Tabs value={viewMode} onValueChange={(value) => setViewMode(value as 'bookings' | 'venues')} className="space-y-6">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="bookings" className="flex items-center gap-2">
+                <Calendar className="w-4 h-4" />
+                Bookings Listing
+              </TabsTrigger>
+              <TabsTrigger value="venues" className="flex items-center gap-2">
+                <MapPin className="w-4 h-4" />
+                Bookings Calendar
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="bookings">
+              <BookingCalendar />
+            </TabsContent>
+
+            <TabsContent value="venues">
+              <VenueCalendarGrid />
+            </TabsContent>
+          </Tabs>
         </div>
       </div>
     </div>

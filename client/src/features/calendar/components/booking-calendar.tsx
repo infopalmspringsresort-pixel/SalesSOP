@@ -4,7 +4,6 @@ import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Calendar as CalendarIcon, Search, Users, MapPin, Clock } from "lucide-react";
@@ -177,85 +176,47 @@ export default function BookingCalendar() {
 
   return (
     <div className="p-6 space-y-6 bg-gray-50/30 min-h-screen">
-      {/* Header Section */}
-      <div className="bg-white rounded-lg shadow-sm border p-6">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center">
-              <CalendarIcon className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Bookings Calendar</h1>
-              <p className="text-gray-600 text-sm">Manage and view all active event bookings</p>
-            </div>
-          </div>
-          
-          <div className="flex flex-col sm:flex-row gap-4 sm:items-center">
-            {/* Search */}
-            <div className="relative min-w-80">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <Input
-                type="search"
-                placeholder="Search bookings, clients, venues..."
-                className="pl-10 bg-white border-gray-300 focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                data-testid="search-bookings"
-              />
-            </div>
-            
-            {/* Stats */}
-            <div className="flex items-center gap-2 bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">
-              <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-              <span className="text-blue-700 font-medium text-sm" data-testid="booking-count">
-                {totalEntries} entries
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
-
       {/* Table Section */}
       <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
         {/* Desktop Table View */}
-        <div className="hidden lg:block overflow-x-auto">
-          <Table className="border-separate border-spacing-0">
-            <TableHeader>
-              <TableRow className="bg-gray-50/80 border-b-2 border-gray-200">
-                <TableHead className="font-semibold text-gray-700 py-4">
+        <div className="hidden lg:block overflow-x-auto rounded-xl border border-border shadow-sm">
+          <table className="w-full border-separate border-spacing-0">
+            <thead>
+              <tr className="bg-gradient-to-r from-gray-50 to-gray-100 border-b-2 border-border">
+                <th className="text-left px-6 py-4 text-sm font-bold text-foreground tracking-wide">
                   <div className="flex items-center gap-2">
                     <CalendarIcon className="w-4 h-4" />
                     Event Date
                   </div>
-                </TableHead>
-                <TableHead className="font-semibold text-gray-700">Booking ID</TableHead>
-                <TableHead className="font-semibold text-gray-700">
+                </th>
+                <th className="text-left px-6 py-4 text-sm font-bold text-foreground tracking-wide">Booking ID</th>
+                <th className="text-left px-6 py-4 text-sm font-bold text-foreground tracking-wide">
                   <div className="flex items-center gap-2">
                     <Users className="w-4 h-4" />
                     Client Name
                   </div>
-                </TableHead>
-                <TableHead className="font-semibold text-gray-700">Event Type</TableHead>
-                <TableHead className="font-semibold text-gray-700">
+                </th>
+                <th className="text-left px-6 py-4 text-sm font-bold text-foreground tracking-wide">Event Type</th>
+                <th className="text-left px-6 py-4 text-sm font-bold text-foreground tracking-wide">
                   <div className="flex items-center gap-2">
                     <MapPin className="w-4 h-4" />
                     Venue
                   </div>
-                </TableHead>
-                <TableHead className="font-semibold text-gray-700">
+                </th>
+                <th className="text-left px-6 py-4 text-sm font-bold text-foreground tracking-wide">
                   <div className="flex items-center gap-2">
                     <Clock className="w-4 h-4" />
                     Sessions
                   </div>
-                </TableHead>
-                <TableHead className="font-semibold text-gray-700">Salesperson</TableHead>
-                <TableHead className="font-semibold text-gray-700">Notes</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
+                </th>
+                <th className="text-left px-6 py-4 text-sm font-bold text-foreground tracking-wide">Salesperson</th>
+                <th className="text-left px-6 py-4 text-sm font-bold text-foreground tracking-wide">Notes</th>
+              </tr>
+            </thead>
+            <tbody>
               {groupedBookings.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={8} className="text-center py-12">
+                <tr>
+                  <td colSpan={8} className="text-center px-6 py-12">
                     <div className="flex flex-col items-center gap-3">
                       <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center">
                         <CalendarIcon className="w-8 h-8 text-gray-400" />
@@ -278,8 +239,8 @@ export default function BookingCalendar() {
                         )}
                       </div>
                     </div>
-                  </TableCell>
-                </TableRow>
+                  </td>
+                </tr>
               ) : (
                 groupedBookings.map((group, groupIndex) => {
                   const groupRows = group.entries.map((entry, entryIndex) => {
@@ -290,12 +251,11 @@ export default function BookingCalendar() {
                     const isLastEntry = entryIndex === group.entries.length - 1;
                     
                     return (
-                      <TableRow
+                      <tr
                         key={entryKey}
                         className={`
-                          cursor-pointer transition-all duration-200 hover:bg-gray-50/70
+                          border-b border-border hover:bg-gradient-to-r hover:from-blue-50/50 hover:to-transparent cursor-pointer transition-all duration-200 group
                           ${getEventTypeColor(group.booking.eventType)}
-                          ${!isLastEntry ? 'border-b border-gray-200' : ''}
                         `}
                         style={{
                           borderLeft: group.isMultiDay ? '3px solid #3B82F6' : 'none',
@@ -304,7 +264,7 @@ export default function BookingCalendar() {
                         onClick={() => handleRowClick(entry.booking)}
                         data-testid={`booking-row-${entryKey}`}
                       >
-                        <TableCell className="py-4" data-testid={`event-date-${entryKey}`}>
+                        <td className="px-6 py-4 align-top" data-testid={`event-date-${entryKey}`}>
                           <div className="flex flex-col">
                             <div className="font-semibold text-gray-900">
                               {format(entry.eventDate, 'MMM dd, yyyy')}
@@ -315,39 +275,39 @@ export default function BookingCalendar() {
                               </div>
                             )}
                           </div>
-                        </TableCell>
+                        </td>
                         
-                        <TableCell data-testid={`booking-id-${entryKey}`}>
+                        <td className="px-6 py-4 align-top" data-testid={`booking-id-${entryKey}`}>
                           {showDetails ? (
-                            <div className="font-mono text-sm font-semibold text-gray-900">
+                            <div className="text-xs text-muted-foreground font-mono bg-gray-100 px-2 py-1 rounded-md font-semibold">
                               {entry.booking.bookingNumber}
                             </div>
                           ) : (
-                            <div className="text-sm text-gray-600">
+                            <div className="text-xs text-muted-foreground font-medium">
                               Day {entry.dateIndex + 1} of {entry.totalDays}
                             </div>
                           )}
-                        </TableCell>
+                        </td>
                         
-                        <TableCell data-testid={`client-name-${entryKey}`}>
+                        <td className="px-6 py-4 align-top" data-testid={`client-name-${entryKey}`}>
                           {showDetails && (
-                            <div className="font-medium text-gray-900">
+                            <div className="text-sm font-bold text-foreground leading-tight mb-1 group-hover:text-primary transition-colors">
                               {entry.booking.clientName}
                             </div>
                           )}
-                        </TableCell>
+                        </td>
                         
-                        <TableCell data-testid={`event-type-${entryKey}`}>
+                        <td className="px-6 py-4 align-top" data-testid={`event-type-${entryKey}`}>
                           {showDetails && (
                             <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800 capitalize">
                               {entry.booking.eventType}
                             </span>
                           )}
-                        </TableCell>
+                        </td>
                         
-                        <TableCell data-testid={`venue-${entryKey}`}>
+                        <td className="px-6 py-4 align-top" data-testid={`venue-${entryKey}`}>
                           {showDetails && (
-                            <div className="text-gray-900">
+                            <div className="text-sm text-foreground">
                               {(() => {
                                 // First try the hall field
                                 if (entry.booking.hall && entry.booking.hall.trim()) {
@@ -366,51 +326,51 @@ export default function BookingCalendar() {
                               })()}
                             </div>
                           )}
-                        </TableCell>
+                        </td>
                         
-                        <TableCell data-testid={`sessions-${entryKey}`}>
+                        <td className="px-6 py-4 align-top" data-testid={`sessions-${entryKey}`}>
                           {showDetails && (
                             (entry.booking as any).sessions && (entry.booking as any).sessions.length > 0 ? (
                               <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
                                 {(entry.booking as any).sessions.length} session{(entry.booking as any).sessions.length > 1 ? 's' : ''}
                               </span>
                             ) : (
-                              <span className="text-gray-400 italic text-sm">No sessions</span>
+                              <span className="text-xs text-muted-foreground">No sessions</span>
                             )
                           )}
-                        </TableCell>
+                        </td>
                         
-                        <TableCell data-testid={`salesperson-${entryKey}`}>
+                        <td className="px-6 py-4 align-top" data-testid={`salesperson-${entryKey}`}>
                           {showDetails && (
-                            <div className="text-gray-900">
+                            <div className="text-sm text-foreground">
                               {getSalespersonName(entry.booking)}
                             </div>
                           )}
-                        </TableCell>
+                        </td>
                         
-                        <TableCell data-testid={`notes-${entryKey}`}>
+                        <td className="px-6 py-4 align-top" data-testid={`notes-${entryKey}`}>
                           {showDetails && (
-                            <span className="text-gray-400">-</span>
+                            <span className="text-xs text-muted-foreground">-</span>
                           )}
-                        </TableCell>
-                      </TableRow>
+                        </td>
+                      </tr>
                     );
                   });
                   
                   // Add spacing row after each group except the last one
                   if (groupIndex < groupedBookings.length - 1) {
                     groupRows.push(
-                      <TableRow key={`spacer-${group.booking.id}`} className="h-2">
-                        <TableCell colSpan={8} className="p-0 h-2"></TableCell>
-                      </TableRow>
+                      <tr key={`spacer-${group.booking.id}`} className="h-2">
+                        <td colSpan={8} className="p-0 h-2"></td>
+                      </tr>
                     );
                   }
                   
                   return groupRows;
                 }).flat()
               )}
-            </TableBody>
-          </Table>
+            </tbody>
+          </table>
         </div>
 
         {/* Mobile Card View */}

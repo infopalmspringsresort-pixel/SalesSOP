@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { TimePicker } from "@/components/ui/time-picker";
 import { Plus, Search, BarChart3, Mail, Calendar } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -54,19 +55,42 @@ export default function Dashboard() {
       if (!response.ok) throw new Error('Failed to complete follow-up');
       return response.json();
     },
+    onMutate: async (followUpId: string) => {
+      // Cancel any outgoing refetches (so they don't overwrite our optimistic update)
+      await queryClient.cancelQueries({ queryKey: ['/api/follow-ups'] });
+      
+      // Snapshot the previous value
+      const previousFollowUps = queryClient.getQueryData<any[]>(['/api/follow-ups']);
+      
+      // Optimistically update to the new value
+      if (previousFollowUps) {
+        queryClient.setQueryData(['/api/follow-ups'], (old: any[] = []) =>
+          old.map((followUp: any) =>
+            followUp.id === followUpId
+              ? { ...followUp, completed: true, completedAt: new Date().toISOString() }
+              : followUp
+          )
+        );
+      }
+      
+      // Return a context object with the snapshotted value
+      return { previousFollowUps };
+    },
+    onError: (err, followUpId, context) => {
+      // If the mutation fails, use the context returned from onMutate to roll back
+      if (context?.previousFollowUps) {
+        queryClient.setQueryData(['/api/follow-ups'], context.previousFollowUps);
+      }
+      toast({ title: "Error", description: "Failed to complete follow-up", variant: "destructive" });
+    },
     onSuccess: () => {
       toast({ title: "Success", description: "Follow-up marked as complete" });
       // Invalidate all follow-up related caches
       queryClient.invalidateQueries({ queryKey: ['/api/follow-ups'] });
       queryClient.invalidateQueries({ queryKey: ['/api/dashboard/metrics'] });
       queryClient.invalidateQueries({ queryKey: ['/api/enquiries'] });
-      // Force refetch follow-ups data to update dashboard immediately
-      queryClient.refetchQueries({ queryKey: ['/api/follow-ups'] });
       // Close dialog and refresh if needed
       setShowFollowUpDetails(false);
-    },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to complete follow-up", variant: "destructive" });
     }
   });
 
@@ -263,28 +287,22 @@ export default function Dashboard() {
       
       <main className="flex-1 overflow-y-auto lg:ml-0 ml-0 h-screen touch-pan-y" style={{ paddingTop: '0' }}>
         {/* Top Header */}
-        <header className="bg-gradient-to-r from-white to-gray-50 border-b border-border px-4 lg:px-6 py-4 lg:py-6 shadow-sm">
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 lg:gap-0">
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between w-full">
-              <div className="w-12 lg:w-0"></div>
-              <div className="flex flex-col items-center flex-1">
-                <div className="flex items-center space-x-3">
-                  <div className="w-8 h-8 lg:w-10 lg:h-10 bg-gradient-to-br from-primary to-primary/80 rounded-lg flex items-center justify-center">
-                    <BarChart3 className="w-4 h-4 lg:w-5 lg:h-5 text-white" />
-                  </div>
-                  <h2 className="text-xl lg:text-3xl font-bold text-foreground tracking-tight">Dashboard</h2>
-                </div>
-                <div className="text-xs lg:text-sm text-muted-foreground mt-1 lg:mt-2 font-medium text-center">
-                  <span>{new Date().toLocaleDateString('en-IN', { 
-                    weekday: 'long', 
-                    year: 'numeric', 
-                    month: 'long', 
-                    day: 'numeric' 
-                  })}</span>
-                </div>
+        <header className="bg-card border-b border-border px-4 lg:px-6 py-3 lg:py-4 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div className="flex-1"></div>
+            <div className="flex items-center gap-4 flex-1 justify-center">
+              <div className="text-center">
+                <h1 className="text-xl lg:text-2xl font-bold text-foreground">Dashboard</h1>
+                <p className="text-sm text-muted-foreground hidden lg:block">{new Date().toLocaleDateString('en-IN', { 
+                  weekday: 'long', 
+                  year: 'numeric', 
+                  month: 'long', 
+                  day: 'numeric' 
+                })}</p>
               </div>
             </div>
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 lg:gap-4 w-full lg:w-auto">
+            <div className="flex-1 flex justify-end">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 lg:gap-4 w-full lg:w-auto">
               <div className="relative flex-1 lg:flex-none">
                 <Input
                   type="search"
@@ -356,6 +374,7 @@ export default function Dashboard() {
                     )}
                   </div>
                 )}
+              </div>
               </div>
             </div>
           </div>
@@ -1038,12 +1057,10 @@ export default function Dashboard() {
                 </div>
                 <div>
                   <Label htmlFor="rescheduleTime">New Time</Label>
-                  <Input
+                  <TimePicker
                     id="rescheduleTime"
-                    type="time"
                     value={rescheduleTime}
-                    onChange={(e) => setRescheduleTime(e.target.value)}
-                    data-testid="input-reschedule-time"
+                    onChange={setRescheduleTime}
                   />
                 </div>
               </div>

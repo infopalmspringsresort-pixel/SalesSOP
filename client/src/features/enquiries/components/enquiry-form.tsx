@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { Plus, X } from "lucide-react";
 import { PhoneInput } from "@/components/ui/phone-input";
 import EnquirySessionManagement from "@/components/ui/enquiry-session-management";
+import { CityInputAutocomplete } from "@/components/ui/city-autocomplete";
 
 // Utility function to convert text to title case
 const toTitleCase = (str: string): string => {
@@ -79,16 +80,17 @@ const formSchema = insertEnquirySchema.extend({
     { message: "Phone number must be valid (10 digits for India, 7-15 digits for other countries)" }
   ),
   expectedPax: z.union([z.number().min(1, "Expected PAX must be at least 1"), z.null()]).optional(),
-  numberOfRooms: z.number().min(0, "Number of rooms cannot be negative").default(0),
+  numberOfRooms: z.union([z.number().min(0, "Number of rooms cannot be negative"), z.null()]).optional(),
 });
 
 interface EnquiryFormProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   editingEnquiry?: any;
+  prefilledData?: { clientName?: string; email?: string; city?: string; contactNumber?: string } | null;
 }
 
-export default function EnquiryForm({ open, onOpenChange, editingEnquiry }: EnquiryFormProps) {
+export default function EnquiryForm({ open, onOpenChange, editingEnquiry, prefilledData }: EnquiryFormProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [tentativeDates, setTentativeDates] = useState<string[]>([]);
@@ -97,6 +99,9 @@ export default function EnquiryForm({ open, onOpenChange, editingEnquiry }: Enqu
   const { user } = useAuth();
   const [showCollisionDialog, setShowCollisionDialog] = useState(false);
   const [collisionMessage, setCollisionMessage] = useState<string>("");
+  const [isSearchingPhone, setIsSearchingPhone] = useState(false);
+  const [hasPrefilled, setHasPrefilled] = useState(false);
+  const [lastSearchedPhone, setLastSearchedPhone] = useState<string>("");
 
   const { data: users = [] } = useQuery<any[]>({
     queryKey: ["/api/users"],
@@ -130,7 +135,7 @@ export default function EnquiryForm({ open, onOpenChange, editingEnquiry }: Enqu
     city: editingEnquiry?.city || "",
     eventType: editingEnquiry?.eventType || "wedding",
     expectedPax: editingEnquiry?.expectedPax || null,
-    numberOfRooms: editingEnquiry?.numberOfRooms || 0,
+    numberOfRooms: editingEnquiry?.numberOfRooms ?? null,
     source: editingEnquiry?.source || "Walk-in",
     notes: editingEnquiry?.notes || "",
     eventDate: editingEnquiry?.eventDate ? new Date(editingEnquiry.eventDate).toISOString().split('T')[0] : "",
@@ -163,7 +168,7 @@ export default function EnquiryForm({ open, onOpenChange, editingEnquiry }: Enqu
         eventDates: data.eventDates ? data.eventDates.map(date => new Date(date)) : null,
         tentativeDates: (tentativeDates || []).length > 0 ? (tentativeDates || []).filter(date => date).map(date => new Date(date)) : null,
         expectedPax: data.expectedPax || null,
-        numberOfRooms: data.numberOfRooms || 0,
+        numberOfRooms: data.numberOfRooms ?? 0,
         source: data.source,
         notes: data.notes || null,
         salespersonId: data.salespersonId && data.salespersonId !== "no-salesperson" ? data.salespersonId : null,
@@ -230,6 +235,18 @@ export default function EnquiryForm({ open, onOpenChange, editingEnquiry }: Enqu
   // Reset form when editing enquiry changes
   useEffect(() => {
     if (open) {
+      // Reset prefilled state for new enquiries
+      if (!editingEnquiry) {
+        // If we have prefilledData, mark as prefilled to prevent auto-search
+        if (prefilledData?.contactNumber) {
+          setHasPrefilled(true);
+          setLastSearchedPhone(prefilledData.contactNumber);
+        } else {
+          setHasPrefilled(false);
+          setLastSearchedPhone("");
+        }
+      }
+      
       // Convert tentative dates to string format if they exist
       const tentativeDatesStrings = editingEnquiry?.tentativeDates 
         ? (editingEnquiry.tentativeDates || []).map((date: any) => {
@@ -244,13 +261,13 @@ export default function EnquiryForm({ open, onOpenChange, editingEnquiry }: Enqu
 
       const defaultValues = {
         enquiryDate: editingEnquiry ? new Date(editingEnquiry.enquiryDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-        clientName: editingEnquiry?.clientName || "",
-        contactNumber: editingEnquiry?.contactNumber || "+91 ",
-        email: editingEnquiry?.email || "",
-        city: editingEnquiry?.city || "",
+        clientName: editingEnquiry?.clientName || prefilledData?.clientName || "",
+        contactNumber: editingEnquiry?.contactNumber || prefilledData?.contactNumber || "+91 ",
+        email: editingEnquiry?.email || prefilledData?.email || "",
+        city: editingEnquiry?.city || prefilledData?.city || "",
         eventType: editingEnquiry?.eventType || "wedding",
         expectedPax: editingEnquiry?.expectedPax || null,
-        numberOfRooms: editingEnquiry?.numberOfRooms || 0,
+        numberOfRooms: editingEnquiry?.numberOfRooms ?? null,
         source: editingEnquiry?.source || "Walk-in",
         notes: editingEnquiry?.notes || "",
         eventDate: editingEnquiry?.eventDate ? new Date(editingEnquiry.eventDate).toISOString().split('T')[0] : "",
@@ -265,7 +282,7 @@ export default function EnquiryForm({ open, onOpenChange, editingEnquiry }: Enqu
       setTentativeDates(tentativeDatesStrings);
       form.setValue('tentativeDates', tentativeDatesStrings);
     }
-  }, [open, editingEnquiry, form]);
+  }, [open, editingEnquiry, prefilledData, form]);
 
   // Clear stale local/form state on close for fresh new opens
   useEffect(() => {
@@ -274,8 +291,81 @@ export default function EnquiryForm({ open, onOpenChange, editingEnquiry }: Enqu
       setSessions([]);
       setEventDuration(1);
       form.reset(initialDefaults);
+      setHasPrefilled(false);
+      setLastSearchedPhone("");
     }
   }, [open]);
+
+  // Watch contact number for prefilling (only for new enquiries)
+  const contactNumber = useWatch({
+    control: form.control,
+    name: "contactNumber",
+  });
+
+  useEffect(() => {
+    // Only search for new enquiries, not when editing
+    if (editingEnquiry || !open) return;
+
+    // Check if phone number is valid (for India: +91 followed by 10 digits)
+    const isValidPhone = (phone: string) => {
+      if (!phone || phone === "+91 ") return false;
+      const parts = phone.split(' ');
+      if (parts.length !== 2) return false;
+      const [countryCode, number] = parts;
+      const digitsOnly = number.replace(/\D/g, '');
+      if (countryCode === '+91') {
+        return digitsOnly.length === 10;
+      }
+      return digitsOnly.length >= 7 && digitsOnly.length <= 15;
+    };
+
+    // Skip if phone is invalid or already searched for this number
+    if (!isValidPhone(contactNumber) || contactNumber === lastSearchedPhone) return;
+
+    // Debounce the API call
+    const timeoutId = setTimeout(async () => {
+      setIsSearchingPhone(true);
+      try {
+        const response = await apiRequest("GET", `/api/enquiries/search-by-phone?phone=${encodeURIComponent(contactNumber)}`);
+        if (response.ok) {
+          const data = await response.json();
+          if (data.found) {
+            // Prefill form fields only if they're currently empty
+            const currentClientName = form.getValues("clientName");
+            const currentEmail = form.getValues("email");
+            const currentCity = form.getValues("city");
+
+            if (!currentClientName && data.clientName) {
+              form.setValue("clientName", toTitleCase(data.clientName), { shouldValidate: false });
+            }
+            if (!currentEmail && data.email) {
+              form.setValue("email", data.email, { shouldValidate: false });
+            }
+            if (!currentCity && data.city) {
+              form.setValue("city", toTitleCase(data.city), { shouldValidate: false });
+            }
+            
+            setHasPrefilled(true);
+            setLastSearchedPhone(contactNumber);
+            toast({
+              title: "Previous enquiry found",
+              description: "Client information has been prefilled from previous enquiry.",
+            });
+          } else {
+            // No match found, but remember we searched this number
+            setLastSearchedPhone(contactNumber);
+          }
+        }
+      } catch (error) {
+        // Silently fail - don't show error for search
+        console.error("Error searching by phone:", error);
+      } finally {
+        setIsSearchingPhone(false);
+      }
+    }, 800); // Wait 800ms after user stops typing
+
+    return () => clearTimeout(timeoutId);
+  }, [contactNumber, editingEnquiry, open, lastSearchedPhone, form, toast]);
 
   const onSubmit = (data: z.infer<typeof formSchema>) => {
     // Get user ID (handle both id and _id formats)
@@ -361,7 +451,7 @@ export default function EnquiryForm({ open, onOpenChange, editingEnquiry }: Enqu
                       <FormControl>
                         <Input 
                           placeholder="Enter client name" 
-                          className="min-h-[44px] touch-manipulation"
+                          className={editingEnquiry ? "min-h-[44px] touch-manipulation bg-muted cursor-not-allowed" : "min-h-[44px] touch-manipulation"}
                           {...field} 
                           onChange={(e) => {
                             const titleCaseName = toTitleCase(e.target.value);
@@ -369,7 +459,6 @@ export default function EnquiryForm({ open, onOpenChange, editingEnquiry }: Enqu
                           }}
                           data-testid="input-client-name" 
                           readOnly={!!editingEnquiry}
-                          className={editingEnquiry ? "bg-muted cursor-not-allowed" : ""}
                         />
                       </FormControl>
                       <FormMessage />
@@ -411,12 +500,11 @@ export default function EnquiryForm({ open, onOpenChange, editingEnquiry }: Enqu
                         <Input 
                           type="email" 
                           placeholder="client@example.com" 
-                          className="min-h-[44px] touch-manipulation"
+                          className={editingEnquiry ? "min-h-[44px] touch-manipulation bg-muted cursor-not-allowed" : "min-h-[44px] touch-manipulation"}
                           {...field} 
                           value={field.value || ""} 
                           data-testid="input-email" 
                           readOnly={!!editingEnquiry}
-                          className={editingEnquiry ? "bg-muted cursor-not-allowed" : ""}
                         />
                       </FormControl>
                       <FormMessage />
@@ -433,15 +521,14 @@ export default function EnquiryForm({ open, onOpenChange, editingEnquiry }: Enqu
                     <FormItem>
                       <FormLabel>City</FormLabel>
                       <FormControl>
-                        <Input 
-                          placeholder="Enter city" 
-                          {...field} 
-                          value={field.value || ""} 
-                          onChange={(e) => {
-                            const titleCaseCity = toTitleCase(e.target.value);
+                        <CityInputAutocomplete
+                          value={field.value || ""}
+                          onChange={(value) => {
+                            const titleCaseCity = toTitleCase(value);
                             field.onChange(titleCaseCity);
                           }}
-                          data-testid="input-city" 
+                          placeholder="Select or type city..."
+                          data-testid="input-city"
                         />
                       </FormControl>
                       <FormMessage />
@@ -592,11 +679,11 @@ export default function EnquiryForm({ open, onOpenChange, editingEnquiry }: Enqu
                           placeholder="Number of rooms" 
                           min="0"
                           {...field}
-                          value={field.value?.toString() || "0"}
+                          value={field.value?.toString() || ""}
                           onChange={(e) => {
                             const value = e.target.value;
                             if (value === "") {
-                              field.onChange(0);
+                              field.onChange(null);
                             } else {
                               const num = parseInt(value);
                               field.onChange(num >= 0 ? num : 0);

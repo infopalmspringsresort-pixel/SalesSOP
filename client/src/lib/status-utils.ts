@@ -88,10 +88,14 @@ export const enquiryStatusOptions = [
   { value: 'lost', label: 'Lost' },
 ];
 
-// Status filter options for bookings - simplified to reflect business rules
+// Status filter options for bookings - include all booking statuses
 export const bookingStatusOptions = [
   { value: 'all', label: 'All Status' },
   { value: 'booked', label: 'Booked' },
+  { value: 'pending_beo', label: 'Pending BEO' },
+  { value: 'beo_ready', label: 'BEO Ready' },
+  { value: 'in_progress', label: 'In Progress' },
+  { value: 'completed', label: 'Completed' },
   { value: 'cancelled', label: 'Cancelled' },
   { value: 'closed', label: 'Closed' },
 ];

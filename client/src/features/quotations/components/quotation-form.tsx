@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useForm, useFieldArray } from "react-hook-form";
+import { useForm, useFieldArray, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -46,6 +46,13 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
   const [showMenuSelectionFlow, setShowMenuSelectionFlow] = useState(false);
   const [showPreviewDialog, setShowPreviewDialog] = useState(false);
   const [createdQuotation, setCreatedQuotation] = useState<Quotation | null>(null);
+  const [gstBreakdown, setGstBreakdown] = useState<{
+    venueGST: number;
+    roomGST: number;
+    menuGST: number;
+    totalGST: number;
+    baseTotal: number;
+  } | null>(null);
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { user } = useAuth();
@@ -119,8 +126,8 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
       case 'venue':
         return amount * 0.18; // 18% GST for venue
       case 'room':
-        // 18% GST if room rate > ₹7,499, else 5% GST
-        const gstRate = (roomRate && roomRate > 7499) ? 0.18 : 0.05;
+        // 5% GST if room rate <= ₹7,500, else 18% GST
+        const gstRate = (roomRate && roomRate > 7500) ? 0.18 : 0.05;
         return amount * gstRate;
       case 'menu':
         return amount * 0.18; // 18% GST for menu
@@ -178,24 +185,30 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
     }
   }, [open]);
 
-  // Calculate totals whenever form values change
-  const watchedValues = form.watch();
+  // Calculate totals whenever form values change - use useWatch for reactive updates
+  const venueRentalItems = useWatch({ control: form.control, name: 'venueRentalItems' });
+  const roomPackages = useWatch({ control: form.control, name: 'roomPackages' });
+  const includeGST = useWatch({ control: form.control, name: 'includeGST' });
+  
   useEffect(() => {
-    const includeGST = watchedValues.includeGST;
-    
     // Calculate venue total with GST
-    const venueBaseTotal = watchedValues.venueRentalItems?.reduce((sum, item) => {
+    const venueBaseTotal = venueRentalItems?.reduce((sum, item) => {
       return sum + (item.sessionRate || 0);
     }, 0) || 0;
     const venueGST = calculateGST(venueBaseTotal, 'venue');
     const venueTotal = venueBaseTotal + venueGST;
     
     // Calculate room total with GST
-    const roomBaseTotal = watchedValues.roomPackages?.reduce((sum, item) => {
-      return sum + (item.rate || 0);
+    const roomBaseTotal = roomPackages?.reduce((sum, item) => {
+      const rate = item.rate || 0;
+      const numberOfRooms = item.numberOfRooms || 1;
+      return sum + (rate * numberOfRooms);
     }, 0) || 0;
-    const roomGST = watchedValues.roomPackages?.reduce((sum, item) => {
-      return sum + calculateGST(item.rate || 0, 'room', item.rate);
+    const roomGST = roomPackages?.reduce((sum, item) => {
+      const rate = item.rate || 0;
+      const numberOfRooms = item.numberOfRooms || 1;
+      const itemTotal = rate * numberOfRooms;
+      return sum + calculateGST(itemTotal, 'room', rate);
     }, 0) || 0;
     const roomQuotationTotal = roomBaseTotal + roomGST;
     // Calculate menu total from selected packages including additional items
@@ -225,13 +238,26 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
     const roomTotal = roomQuotationTotal; // Same as room quotation total
     const grandTotal = venueTotal + roomQuotationTotal + menuTotal; // Don't double-count venue total
     
-    form.setValue('venueRentalTotal', venueTotal);
-    form.setValue('roomQuotationTotal', roomQuotationTotal);
-    form.setValue('roomTotal', roomTotal);
-    form.setValue('menuTotal', menuTotal);
-    form.setValue('banquetTotal', banquetTotal); // Set banquet total to venue total
-    form.setValue('grandTotal', grandTotal);
-  }, [watchedValues.venueRentalItems, watchedValues.roomPackages, watchedValues.includeGST, selectedMenuPackages, menuPackages, customMenuItems, form]);
+    // Store individual GST amounts for display
+    const totalGST = venueGST + roomGST + menuGST;
+    const baseTotal = venueBaseTotal + roomBaseTotal + menuBaseTotal;
+    
+    form.setValue('venueRentalTotal', venueTotal, { shouldValidate: false, shouldDirty: false });
+    form.setValue('roomQuotationTotal', roomQuotationTotal, { shouldValidate: false, shouldDirty: false });
+    form.setValue('roomTotal', roomTotal, { shouldValidate: false, shouldDirty: false });
+    form.setValue('menuTotal', menuTotal, { shouldValidate: false, shouldDirty: false });
+    form.setValue('banquetTotal', banquetTotal, { shouldValidate: false, shouldDirty: false });
+    form.setValue('grandTotal', grandTotal, { shouldValidate: false, shouldDirty: false });
+    
+    // Store GST breakdown for display
+    setGstBreakdown(includeGST ? {
+      venueGST,
+      roomGST,
+      menuGST,
+      totalGST,
+      baseTotal,
+    } : null);
+  }, [venueRentalItems, roomPackages, includeGST, selectedMenuPackages, menuPackages, customMenuItems, form]);
 
   const createQuotationMutation = useMutation({
     mutationFn: async (data: z.infer<typeof formSchema>) => {
@@ -326,7 +352,9 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
       }, 0) || 0;
       
       const roomQuotationTotal = data.roomPackages?.reduce((sum, item) => {
-        return sum + (item.rate || 0);
+        const rate = item.rate || 0;
+        const numberOfRooms = item.numberOfRooms || 1;
+        return sum + (rate * numberOfRooms);
       }, 0) || 0;
       
       const menuTotal = menuPackagesData.reduce((sum, pkg) => {
@@ -397,6 +425,7 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
     appendRoom({
       category: "",
       rate: 0,
+      numberOfRooms: null,
     });
   };
 
@@ -841,8 +870,11 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
                                   <FormControl>
                                     <Input 
                                       type="number" 
-                                      {...field}
-                                      onChange={(e) => field.onChange(Number(e.target.value))}
+                                      value={field.value || ""}
+                                      onChange={(e) => {
+                                        const value = e.target.value ? Number(e.target.value) : 0;
+                                        field.onChange(value);
+                                      }}
                                     />
                                   </FormControl>
                                   <FormMessage />
@@ -927,7 +959,7 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
                               <Trash2 className="w-4 h-4" />
                             </Button>
                           </div>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                             <FormField
                               control={form.control}
                               name={`roomPackages.${index}.category`}
@@ -940,9 +972,7 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
                                       // Auto-fill room rate when category is selected
                                       const selectedRoom = roomTypes.find(rt => rt.name === value);
                                       if (selectedRoom) {
-                                        form.setValue(`roomPackages.${index}.rate`, selectedRoom.baseRate || 0);
-                                        // Force form to re-render and recalculate
-                                        form.trigger();
+                                        form.setValue(`roomPackages.${index}.rate`, selectedRoom.baseRate || 0, { shouldValidate: false, shouldDirty: false });
                                       }
                                     }} 
                                     value={field.value}
@@ -976,11 +1006,39 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
                                     <Input 
                                       type="number" 
                                       className="h-10"
-                                      {...field}
+                                      value={field.value || ""}
                                       onChange={(e) => {
-                                        field.onChange(Number(e.target.value));
+                                        const value = e.target.value ? Number(e.target.value) : 0;
+                                        field.onChange(value);
                                         // Force form to re-render and recalculate
                                         form.trigger();
+                                      }}
+                                    />
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                            <FormField
+                              control={form.control}
+                              name={`roomPackages.${index}.numberOfRooms`}
+                              render={({ field }) => (
+                                <FormItem className="flex flex-col">
+                                  <FormLabel className="mb-2">Number of Rooms *</FormLabel>
+                                  <FormControl>
+                                    <Input 
+                                      type="number" 
+                                      min="1"
+                                      className="h-10"
+                                      value={field.value?.toString() || ""}
+                                      onChange={(e) => {
+                                        const value = e.target.value.trim();
+                                        if (value === "") {
+                                          field.onChange(null);
+                                        } else {
+                                          const numValue = Number(value);
+                                          field.onChange(isNaN(numValue) ? null : numValue);
+                                        }
                                       }}
                                     />
                                   </FormControl>
@@ -1021,7 +1079,7 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
                       </div>
                       <div className="text-sm text-blue-600">
                         <p>• Venue: 18% GST</p>
-                        <p>• Rooms above ₹7,499: 18% GST | Below ₹7,499: 5% GST</p>
+                        <p>• Rooms above ₹7,500: 18% GST | Up to ₹7,500: 5% GST</p>
                         <p>• Food/Menu: 18% GST</p>
                       </div>
                     </div>
@@ -1030,14 +1088,44 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
                     <span className="text-muted-foreground">Venue Rental:</span>
                     <span className="font-medium">₹{form.watch('venueRentalTotal')?.toLocaleString() || '0'}</span>
                   </div>
+                  {includeGST && gstBreakdown && (
+                    <div className="flex justify-between text-xs text-muted-foreground pl-4">
+                      <span>Base: ₹{((form.watch('venueRentalTotal') || 0) - gstBreakdown.venueGST).toLocaleString()}</span>
+                      <span>GST (18%): ₹{gstBreakdown.venueGST.toLocaleString()}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Room Quotation:</span>
                     <span className="font-medium">₹{form.watch('roomQuotationTotal')?.toLocaleString() || '0'}</span>
                   </div>
+                  {includeGST && gstBreakdown && (
+                    <div className="flex justify-between text-xs text-muted-foreground pl-4">
+                      <span>Base: ₹{((form.watch('roomQuotationTotal') || 0) - gstBreakdown.roomGST).toLocaleString()}</span>
+                      <span>GST: ₹{gstBreakdown.roomGST.toLocaleString()}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Menu Total:</span>
                     <span className="font-medium">₹{form.watch('menuTotal')?.toLocaleString() || '0'}</span>
                   </div>
+                  {includeGST && gstBreakdown && (
+                    <div className="flex justify-between text-xs text-muted-foreground pl-4">
+                      <span>Base: ₹{((form.watch('menuTotal') || 0) - gstBreakdown.menuGST).toLocaleString()}</span>
+                      <span>GST (18%): ₹{gstBreakdown.menuGST.toLocaleString()}</span>
+                    </div>
+                  )}
+                  {includeGST && gstBreakdown && (
+                    <div className="border-t pt-2 mt-2">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Subtotal (Before GST):</span>
+                        <span className="font-medium">₹{gstBreakdown.baseTotal.toLocaleString()}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Total GST:</span>
+                        <span className="font-medium text-green-600">₹{gstBreakdown.totalGST.toLocaleString()}</span>
+                      </div>
+                    </div>
+                  )}
                   <div className="border-t pt-3">
                     <div className="flex justify-between text-lg font-semibold">
                       <span>Grand Total:</span>
@@ -1082,8 +1170,8 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
                   <div className="text-sm text-muted-foreground">
                     <p><strong>GST Rates:</strong></p>
                     <ul className="list-disc list-inside mt-1 space-y-1">
-                      <li>Rooms above ₹7,499: 18% GST</li>
-                      <li>Rooms below ₹7,499: 5% GST</li>
+                      <li>Rooms above ₹7,500: 18% GST</li>
+                      <li>Rooms up to ₹7,500: 5% GST</li>
                       <li>Venue rental: 18% GST</li>
                       <li>Food/Menu: 18% GST</li>
                     </ul>

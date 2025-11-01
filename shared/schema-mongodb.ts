@@ -338,6 +338,7 @@ export const roomPackageSchema = z.object({
   _id: z.instanceof(ObjectId).optional(),
   category: z.string(), // e.g., "Standard Room", "Deluxe Room"
   rate: z.number(), // Room rate
+  numberOfRooms: z.union([z.number().min(1, "Number of rooms must be at least 1"), z.null()]).optional(), // Number of rooms
 });
 
 // Menu Package Item

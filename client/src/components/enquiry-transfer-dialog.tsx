@@ -106,6 +106,7 @@ export default function EnquiryTransferDialog({ enquiry, open, onOpenChange }: E
       toast({ title: "Transfer request sent", description: "The recipient will be notified." });
       form.reset();
       refetchTransfers();
+      onOpenChange(false); // Close the modal after successful submission
     },
     onError: (error: any) => {
       // Handle specific error types with user-friendly messages

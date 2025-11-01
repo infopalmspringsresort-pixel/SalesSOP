@@ -133,6 +133,41 @@ export function registerEnquiryRoutes(app: Express) {
     }
   });
 
+  // Search for previous enquiry by contact number
+  app.get("/api/enquiries/search-by-phone", requirePermission('enquiries', 'read'), async (req: any, res) => {
+    try {
+      const { phone } = req.query;
+      if (!phone) {
+        return res.status(400).json({ message: "Phone number is required" });
+      }
+
+      const enquiries = await getCollection<any>('enquiries');
+      
+      // Find the most recent enquiry with this contact number
+      // Contact number format is typically "+91 1234567890" so we need to match it properly
+      const previousEnquiry = await enquiries.findOne(
+        { contactNumber: phone },
+        { sort: { createdAt: -1 } } // Get most recent first
+      );
+
+      if (previousEnquiry) {
+        // Return relevant fields for prefilling
+        res.json({
+          found: true,
+          clientName: previousEnquiry.clientName || "",
+          email: previousEnquiry.email || "",
+          city: previousEnquiry.city || "",
+          contactNumber: previousEnquiry.contactNumber || phone,
+        });
+      } else {
+        res.json({ found: false });
+      }
+    } catch (error: any) {
+      console.error("Search by phone error:", error);
+      res.status(500).json({ message: "Failed to search enquiries" });
+    }
+  });
+
   // Get transfer requests for current user (sender or recipient) - MUST BE BEFORE /api/enquiries/:id
   app.get("/api/enquiries/transfers", async (req: any, res) => {
     try {
@@ -142,9 +177,102 @@ export function registerEnquiryRoutes(app: Express) {
       }
       
       const transfers = await storage.getEnquiryTransfersByUser(userId);
-      res.json(transfers);
+      
+      // Populate enquiry and user information for each transfer
+      const populatedTransfers = await Promise.all(
+        transfers.map(async (transfer: any) => {
+          const result: any = {
+            ...transfer,
+            enquiry: null,
+            fromUser: null,
+            toUser: null,
+          };
+          
+          // Fetch enquiry information
+          if (transfer.enquiryId) {
+            try {
+              const enquiry = await storage.getEnquiryById(transfer.enquiryId);
+              if (enquiry) {
+                result.enquiry = {
+                  id: enquiry.id || enquiry._id?.toString(),
+                  enquiryNumber: enquiry.enquiryNumber || null,
+                  clientName: enquiry.clientName || null,
+                };
+              }
+            } catch (error: any) {
+              console.error(`[Transfer API] Error fetching enquiry ${transfer.enquiryId}:`, error?.message || error);
+            }
+          }
+          
+          // Fetch from user information
+          if (transfer.fromUserId) {
+            try {
+              const userWithRole = await storage.getUserWithRole(transfer.fromUserId);
+              if (userWithRole) {
+                result.fromUser = {
+                  id: userWithRole.id,
+                  firstName: userWithRole.firstName || null,
+                  lastName: userWithRole.lastName || null,
+                  email: userWithRole.email || null,
+                };
+              }
+            } catch (error: any) {
+              console.error(`[Transfer API] Error fetching from user ${transfer.fromUserId}:`, error?.message || error);
+              // Try fallback
+              try {
+                const user = await storage.getUser(transfer.fromUserId);
+                if (user) {
+                  result.fromUser = {
+                    id: (user as any).id,
+                    firstName: (user as any).firstName || null,
+                    lastName: (user as any).lastName || null,
+                    email: (user as any).email || null,
+                  };
+                }
+              } catch (fallbackError: any) {
+                console.error(`[Transfer API] Fallback error for from user ${transfer.fromUserId}:`, fallbackError?.message || fallbackError);
+              }
+            }
+          }
+          
+          // Fetch to user information
+          if (transfer.toUserId) {
+            try {
+              const userWithRole = await storage.getUserWithRole(transfer.toUserId);
+              if (userWithRole) {
+                result.toUser = {
+                  id: userWithRole.id,
+                  firstName: userWithRole.firstName || null,
+                  lastName: userWithRole.lastName || null,
+                  email: userWithRole.email || null,
+                };
+              }
+            } catch (error: any) {
+              console.error(`[Transfer API] Error fetching to user ${transfer.toUserId}:`, error?.message || error);
+              // Try fallback
+              try {
+                const user = await storage.getUser(transfer.toUserId);
+                if (user) {
+                  result.toUser = {
+                    id: (user as any).id,
+                    firstName: (user as any).firstName || null,
+                    lastName: (user as any).lastName || null,
+                    email: (user as any).email || null,
+                  };
+                }
+              } catch (fallbackError: any) {
+                console.error(`[Transfer API] Fallback error for to user ${transfer.toUserId}:`, fallbackError?.message || fallbackError);
+              }
+            }
+          }
+          
+          return result;
+        })
+      );
+      
+      res.json(populatedTransfers);
     } catch (error: any) {
-      console.error("Get transfers error:", error);
+      console.error("Get transfers error:", error?.message || error);
       res.status(500).json({ message: "Failed to fetch transfers" });
     }
   });
@@ -318,7 +446,9 @@ export function registerEnquiryRoutes(app: Express) {
       
       res.json(enquiry);
     } catch (error) {
-      res.status(500).json({ message: "Failed to update enquiry" });
+      console.error("Error updating enquiry:", error);
+      const errorMessage = error instanceof Error ? error.message : "Failed to update enquiry";
+      res.status(500).json({ message: "Failed to update enquiry", error: errorMessage });
     }
   });
 
@@ -427,6 +557,9 @@ export function registerEnquiryRoutes(app: Express) {
       const processedData = { ...req.body };
       if (processedData.followUpDate && typeof processedData.followUpDate === 'string') {
         processedData.followUpDate = new Date(processedData.followUpDate);
+      }
+      if (processedData.repeatEndDate && typeof processedData.repeatEndDate === 'string') {
+        processedData.repeatEndDate = new Date(processedData.repeatEndDate);
       }
       if (processedData.completedAt && typeof processedData.completedAt === 'string') {
         processedData.completedAt = new Date(processedData.completedAt);

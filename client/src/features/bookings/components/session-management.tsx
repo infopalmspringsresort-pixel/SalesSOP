@@ -320,44 +320,28 @@ export default function SessionManagement({
                   {/* Start Time */}
                   <div>
                     <Label htmlFor={`start-time-${session.id}`}>Start Time *</Label>
-                    <div className="relative">
-                      <Clock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4 pointer-events-none" />
-                      <Input
-                        id={`start-time-${session.id}`}
-                        type="time"
-                        value={session.startTime}
-                        onChange={(e) => updateSession(session.id, 'startTime', e.target.value)}
-                        data-testid={`session-start-time-${index}`}
-                        className={`pl-10 font-medium ${!session.startTime ? 'border-red-500' : ''}`}
-                      />
-                    </div>
+                    <TimePicker
+                      id={`start-time-${session.id}`}
+                      value={session.startTime || ""}
+                      onChange={(value) => updateSession(session.id, 'startTime', value)}
+                      className={!session.startTime ? 'border-red-500' : ''}
+                    />
                     {!session.startTime && (
                       <p className="text-sm text-red-500 mt-1">Start time is required</p>
-                    )}
-                    {session.startTime && !/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/.test(session.startTime) && (
-                      <p className="text-sm text-red-500 mt-1">Start time must be in HH:MM format (24-hour)</p>
                     )}
                   </div>
 
                   {/* End Time */}
                   <div>
                     <Label htmlFor={`end-time-${session.id}`}>End Time *</Label>
-                    <div className="relative">
-                      <Clock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4 pointer-events-none" />
-                      <Input
-                        id={`end-time-${session.id}`}
-                        type="time"
-                        value={session.endTime}
-                        onChange={(e) => updateSession(session.id, 'endTime', e.target.value)}
-                        data-testid={`session-end-time-${index}`}
-                        className={`pl-10 font-medium ${!session.endTime ? 'border-red-500' : ''}`}
-                      />
-                    </div>
+                    <TimePicker
+                      id={`end-time-${session.id}`}
+                      value={session.endTime || ""}
+                      onChange={(value) => updateSession(session.id, 'endTime', value)}
+                      className={!session.endTime ? 'border-red-500' : ''}
+                    />
                     {!session.endTime && (
                       <p className="text-sm text-red-500 mt-1">End time is required</p>
-                    )}
-                    {session.endTime && !/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/.test(session.endTime) && (
-                      <p className="text-sm text-red-500 mt-1">End time must be in HH:MM format (24-hour)</p>
                     )}
                     {session.startTime && session.endTime && session.startTime >= session.endTime && (
                       <p className="text-sm text-red-500 mt-1">⚠️ End time must be after start time</p>

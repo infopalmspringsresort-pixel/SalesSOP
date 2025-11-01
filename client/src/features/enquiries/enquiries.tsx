@@ -4,6 +4,7 @@ import { useToast } from "@/hooks/use-toast";
 import Sidebar from "@/components/sidebar";
 import EnquiryForm from "./components/enquiry-form";
 import EnquiryDetailsDialog from "./components/enquiry-details-dialog";
+import PhoneLookupDialog from "./components/phone-lookup-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -15,6 +16,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { TimePicker } from "@/components/ui/time-picker";
 import { Plus, Search, Filter, Eye, Phone, FileText, Edit, Calendar, X, Menu, ChartLine, Mail, ClipboardList, BarChart3 } from "lucide-react";
 import { Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -28,9 +30,11 @@ import TransferNotifications from "@/components/transfer-notifications";
 export default function Enquiries() {
   const { toast } = useToast();
   const { isAuthenticated, isLoading, user } = useAuth();
+  const [showPhoneLookup, setShowPhoneLookup] = useState(false);
   const [showEnquiryForm, setShowEnquiryForm] = useState(false);
   const [selectedEnquiry, setSelectedEnquiry] = useState<EnquiryWithRelations | null>(null);
   const [editingEnquiry, setEditingEnquiry] = useState<EnquiryWithRelations | null>(null);
+  const [prefilledData, setPrefilledData] = useState<{ clientName?: string; email?: string; city?: string; contactNumber?: string } | null>(null);
   const [showEnquiryDetails, setShowEnquiryDetails] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -114,26 +118,6 @@ export default function Enquiries() {
     }
   }, [enquiries]);
 
-  const updateFollowUpMutation = useMutation({
-    mutationFn: async (data: any) => {
-      return await apiRequest(`/api/enquiries/${followUpEnquiry?.id}`, "PATCH", data);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/enquiries"] });
-      setShowFollowUpDialog(false);
-      toast({
-        title: "Success",
-        description: "Follow-up updated successfully",
-      });
-    },
-    onError: (error) => {
-      toast({
-        title: "Error",
-        description: "Failed to update follow-up",
-        variant: "destructive",
-      });
-    },
-  });
 
   // Handle claiming an unassigned enquiry
   const handleClaimEnquiry = async (enquiry: EnquiryWithRelations) => {
@@ -184,6 +168,36 @@ export default function Enquiries() {
       return;
     }
 
+    // Validate that follow-up date is not after event date
+    if (followUpEnquiry.eventDate && followUpDate) {
+      const eventDate = new Date(followUpEnquiry.eventDate);
+      eventDate.setHours(23, 59, 59, 999); // Set to end of event date
+      const followUpDateObj = new Date(followUpDate);
+      followUpDateObj.setHours(23, 59, 59, 999);
+      if (followUpDateObj > eventDate) {
+        toast({
+          variant: "destructive",
+          description: "Follow-up date cannot be after the event date.",
+        });
+        return;
+      }
+    }
+
+    // Validate that repeat end date (if provided) is not after event date
+    if (repeatFollowUp && repeatEndDate && followUpEnquiry.eventDate) {
+      const eventDate = new Date(followUpEnquiry.eventDate);
+      eventDate.setHours(23, 59, 59, 999);
+      const endDate = new Date(repeatEndDate);
+      endDate.setHours(23, 59, 59, 999);
+      if (endDate > eventDate) {
+        toast({
+          variant: "destructive",
+          description: "Repeat end date cannot be after the event date.",
+        });
+        return;
+      }
+    }
+
     // Create follow-up history entry when setting a follow-up
     const followUpHistoryData = {
       enquiryId: followUpEnquiry.id,
@@ -191,35 +205,43 @@ export default function Enquiries() {
       followUpTime: followUpTime,
       notes: followUpNotes,
       setById: user?.id || "", // Use current user ID
-      statusBefore: followUpEnquiry.status,
-      statusAfter: "follow_up_required",
+      repeatFollowUp: repeatFollowUp,
+      repeatInterval: repeatFollowUp ? repeatInterval : null,
+      repeatEndDate: repeatFollowUp && repeatEndDate ? new Date(repeatEndDate) : null,
     };
 
-    // First create the follow-up history record
-    apiRequest("/api/follow-ups", "POST", followUpHistoryData).then(() => {
-      // Invalidate follow-up related queries immediately after creating the follow-up history
-      queryClient.invalidateQueries({ queryKey: ["/api/follow-ups"] });
-      queryClient.invalidateQueries({ queryKey: [`/api/enquiries/${followUpEnquiry.id}/follow-ups`] });
-      queryClient.invalidateQueries({ queryKey: [`/api/enquiries/${followUpEnquiry.id}/follow-up-stats`] });
-      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/metrics"] });
-      
-      // Then update the enquiry with follow-up details
-      updateFollowUpMutation.mutate({
-        followUpDate: followUpDate,
-        followUpTime: followUpTime,
-        followUpNotes: followUpNotes,
-        repeatFollowUp: repeatFollowUp,
-        repeatInterval: repeatFollowUp ? repeatInterval : null,
-        repeatEndDate: repeatFollowUp && repeatEndDate ? repeatEndDate : null,
-        status: "follow_up_required", // Force status change when setting follow-up
+    // Create the follow-up history record
+    apiRequest("POST", "/api/follow-ups", followUpHistoryData)
+      .then(() => {
+        // Invalidate and refetch follow-up related queries after creating the follow-up history
+        queryClient.invalidateQueries({ queryKey: ["/api/follow-ups"] });
+        queryClient.invalidateQueries({ queryKey: [`/api/enquiries/${followUpEnquiry.id}/follow-ups`] });
+        queryClient.invalidateQueries({ queryKey: [`/api/enquiries/${followUpEnquiry.id}/follow-up-stats`] });
+        queryClient.invalidateQueries({ queryKey: ["/api/dashboard/metrics"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/enquiries"] });
+        // Force refetch to update dashboard immediately
+        queryClient.refetchQueries({ queryKey: ["/api/follow-ups"] });
+        
+        toast({
+          title: "Success",
+          description: "Follow-up created successfully",
+        });
+        
+        setShowFollowUpDialog(false);
+        setFollowUpDate("");
+        setFollowUpTime("12:00");
+        setFollowUpNotes("");
+        setRepeatFollowUp(false);
+        setRepeatInterval(7);
+        setRepeatEndDate("");
+      })
+      .catch((error) => {
+        toast({
+          title: "Error",
+          description: "Failed to create follow-up record",
+          variant: "destructive",
+        });
       });
-    }).catch((error) => {
-      toast({
-        title: "Error",
-        description: "Failed to create follow-up record",
-        variant: "destructive",
-      });
-    });
   };
 
   const openFollowUpDialog = (enquiry: EnquiryWithRelations) => {
@@ -320,12 +342,20 @@ export default function Enquiries() {
                 </div>
               </SheetContent>
             </Sheet>
-            <div className="hidden lg:block w-12"></div>
-            <h2 className="text-lg lg:text-2xl font-semibold text-foreground text-center flex-1">
-              Enquiries
-            </h2>
+            
+            <div className="flex-1 flex justify-center">
+              <div className="text-center">
+                <h1 className="text-xl lg:text-2xl font-bold text-foreground">Enquiries</h1>
+                <p className="text-sm text-muted-foreground hidden lg:block">Manage and track all customer enquiries</p>
+              </div>
+            </div>
+            
             <Button 
-              onClick={() => setShowEnquiryForm(true)} 
+              onClick={() => {
+                setPrefilledData(null);
+                setEditingEnquiry(null);
+                setShowPhoneLookup(true);
+              }} 
               data-testid="button-new-enquiry"
               size="sm"
               className="lg:size-default"
@@ -460,28 +490,21 @@ export default function Enquiries() {
                         </div>
                         
                         <div className="p-4 border-t bg-background sticky bottom-0">
-                          <div className="flex justify-between">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                setSearchQuery("");
-                                setStatusFilter("all");
-                                setFollowUpFilter("all");
-                                setEventTypeFilter("all");
-                                setDateFilter("all");
-                                setSalespersonFilter("all");
-                              }}
-                            >
-                              Clear All
-                            </Button>
-                            <Button
-                              size="sm"
-                              onClick={() => setShowFilters(false)}
-                            >
-                              Apply Filters
-                            </Button>
-                          </div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="w-full"
+                            onClick={() => {
+                              setSearchQuery("");
+                              setStatusFilter("all");
+                              setFollowUpFilter("all");
+                              setEventTypeFilter("all");
+                              setDateFilter("all");
+                              setSalespersonFilter("all");
+                            }}
+                          >
+                            Clear All
+                          </Button>
                         </div>
                       </PopoverContent>
                     </Popover>
@@ -500,7 +523,11 @@ export default function Enquiries() {
               ) : (enquiries || []).length === 0 ? (
                 <div className="text-center py-12">
                   <p className="text-muted-foreground mb-4">No enquiries found</p>
-                  <Button onClick={() => setShowEnquiryForm(true)}>
+                  <Button onClick={() => {
+                    setPrefilledData(null);
+                    setEditingEnquiry(null);
+                    setShowPhoneLookup(true);
+                  }}>
                     <Plus className="w-4 h-4 mr-2" />
                     Create First Enquiry
                   </Button>
@@ -524,15 +551,6 @@ export default function Enquiries() {
                       </thead>
                       <tbody>
                       {(enquiries || []).filter(enquiry => {
-                        // Role-based visibility filter
-                        // Handle both object and string role formats
-                        const userRole = (user as any)?.role?.name || (user as any)?.role;
-                        const userId = (user as any)?.id || (user as any)?._id;
-                        
-                        // All users can see all enquiries in the list
-                        // Actions are controlled separately based on role and ownership
-                        return true;
-                        
                         // Search filter
                         if (searchQuery.trim()) {
                           const query = searchQuery.toLowerCase().trim();
@@ -596,16 +614,38 @@ export default function Enquiries() {
                           }
                         }
                         
-                        // Follow-up filter
+                        // Follow-up filter (exclude booked enquiries as they don't need follow-ups)
                         if (followUpFilter === "overdue") {
+                          // Skip booked enquiries - they don't need follow-ups
+                          if (enquiry.status === "booked") return false;
                           const hasOverdueFollowUp = enquiry.followUpDate && new Date(enquiry.followUpDate) < new Date();
                           if (!hasOverdueFollowUp) return false;
                         } else if (followUpFilter === "pending") {
+                          // Skip booked enquiries - they don't need follow-ups
+                          if (enquiry.status === "booked") return false;
                           const hasPendingFollowUp = enquiry.followUpDate && new Date(enquiry.followUpDate) >= new Date();
                           if (!hasPendingFollowUp) return false;
                         }
                         
+                        // Salesperson filter
+                        if (salespersonFilter !== "all") {
+                          const enquirySalespersonId = enquiry.salespersonId || enquiry.assignedTo;
+                          if (enquirySalespersonId !== salespersonFilter) return false;
+                        }
+                        
                         return true;
+                      }).sort((a, b) => {
+                        // Status hierarchy: new → quotation_sent → ongoing → converted → booked
+                        const statusOrder: { [key: string]: number } = {
+                          'new': 1,
+                          'quotation_sent': 2,
+                          'ongoing': 3,
+                          'converted': 4,
+                          'booked': 5,
+                        };
+                        const statusA = statusOrder[a.status || 'new'] || 99;
+                        const statusB = statusOrder[b.status || 'new'] || 99;
+                        return statusA - statusB;
                       }).map((enquiry) => (
                         <tr 
                           key={enquiry.id} 
@@ -804,14 +844,6 @@ export default function Enquiries() {
                   {/* Mobile Card View - Enhanced for touch */}
                   <div className="lg:hidden space-y-3 pb-20">
                     {(enquiries || []).filter(enquiry => {
-                      // Role-based visibility filter (same as desktop)
-                      const userRole = (user as any)?.role?.name || (user as any)?.role;
-                      const userId = (user as any)?.id || (user as any)?._id;
-                      
-                      // All users can see all enquiries in the list
-                      // Actions are controlled separately based on role and ownership
-                      return true;
-                      
                       // Apply same filter logic for mobile view
                       if (searchQuery.trim()) {
                         const query = searchQuery.toLowerCase().trim();
@@ -872,15 +904,38 @@ export default function Enquiries() {
                         }
                       }
                       
+                      // Follow-up filter (exclude booked enquiries as they don't need follow-ups)
                       if (followUpFilter === "overdue") {
+                        // Skip booked enquiries - they don't need follow-ups
+                        if (enquiry.status === "booked") return false;
                         const hasOverdueFollowUp = enquiry.followUpDate && new Date(enquiry.followUpDate) < new Date();
                         if (!hasOverdueFollowUp) return false;
                       } else if (followUpFilter === "pending") {
+                        // Skip booked enquiries - they don't need follow-ups
+                        if (enquiry.status === "booked") return false;
                         const hasPendingFollowUp = enquiry.followUpDate && new Date(enquiry.followUpDate) >= new Date();
                         if (!hasPendingFollowUp) return false;
                       }
                       
+                      // Salesperson filter
+                      if (salespersonFilter !== "all") {
+                        const enquirySalespersonId = enquiry.salespersonId || enquiry.assignedTo;
+                        if (enquirySalespersonId !== salespersonFilter) return false;
+                      }
+                      
                       return true;
+                    }).sort((a, b) => {
+                      // Status hierarchy: new → quotation_sent → ongoing → converted → booked
+                      const statusOrder: { [key: string]: number } = {
+                        'new': 1,
+                        'quotation_sent': 2,
+                        'ongoing': 3,
+                        'converted': 4,
+                        'booked': 5,
+                      };
+                      const statusA = statusOrder[a.status || 'new'] || 99;
+                      const statusB = statusOrder[b.status || 'new'] || 99;
+                      return statusA - statusB;
                     }).map((enquiry) => (
                       <Card 
                         key={enquiry.id} 
@@ -1025,13 +1080,32 @@ export default function Enquiries() {
           </Card>
         </div>
 
+        <PhoneLookupDialog
+          open={showPhoneLookup}
+          onOpenChange={setShowPhoneLookup}
+          onPhoneFound={(data) => {
+            setPrefilledData(data);
+            setShowPhoneLookup(false);
+            setShowEnquiryForm(true);
+          }}
+          onSkip={() => {
+            setPrefilledData(null);
+            setShowPhoneLookup(false);
+            setShowEnquiryForm(true);
+          }}
+        />
+
         <EnquiryForm 
           open={showEnquiryForm} 
           onOpenChange={(open) => {
             setShowEnquiryForm(open);
-            if (!open) setEditingEnquiry(null);
+            if (!open) {
+              setEditingEnquiry(null);
+              setPrefilledData(null);
+            }
           }}
           editingEnquiry={editingEnquiry}
+          prefilledData={prefilledData}
         />
         <EnquiryDetailsDialog 
           enquiry={selectedEnquiry} 
@@ -1055,10 +1129,12 @@ export default function Enquiries() {
             };
             
             setEditingEnquiry(enquiryForNewCreation as any);
+            setPrefilledData(null);
             setShowEnquiryForm(true);
           }}
           onEdit={(enquiry) => {
             setEditingEnquiry(enquiry);
+            setPrefilledData(null);
             setShowEnquiryForm(true);
           }}
         />
@@ -1076,19 +1152,38 @@ export default function Enquiries() {
                     id="followUpDate"
                     type="date"
                     min={new Date().toISOString().split('T')[0]}
+                    max={followUpEnquiry?.eventDate ? new Date(followUpEnquiry.eventDate).toISOString().split('T')[0] : undefined}
                     value={followUpDate}
-                    onChange={(e) => setFollowUpDate(e.target.value)}
+                    onChange={(e) => {
+                      const selectedDate = e.target.value;
+                      // Validate that selected date is not after event date
+                      if (followUpEnquiry?.eventDate && selectedDate) {
+                        const eventDateStr = new Date(followUpEnquiry.eventDate).toISOString().split('T')[0];
+                        if (selectedDate > eventDateStr) {
+                          toast({
+                            title: "Invalid Date",
+                            description: "Follow-up date cannot be after the event date.",
+                            variant: "destructive",
+                          });
+                          return;
+                        }
+                      }
+                      setFollowUpDate(selectedDate);
+                    }}
                     data-testid="input-follow-up-date"
                   />
+                  {followUpEnquiry?.eventDate && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Must be on or before event date: {new Date(followUpEnquiry.eventDate).toLocaleDateString()}
+                    </p>
+                  )}
                 </div>
                 <div>
                   <Label htmlFor="followUpTime">Follow-up Time</Label>
-                  <Input
+                  <TimePicker
                     id="followUpTime"
-                    type="time"
                     value={followUpTime}
-                    onChange={(e) => setFollowUpTime(e.target.value)}
-                    data-testid="input-follow-up-time"
+                    onChange={setFollowUpTime}
                   />
                 </div>
               </div>
@@ -1134,10 +1229,31 @@ export default function Enquiries() {
                       id="repeatEndDate"
                       type="date"
                       min={followUpDate || new Date().toISOString().split('T')[0]}
+                      max={followUpEnquiry?.eventDate ? new Date(followUpEnquiry.eventDate).toISOString().split('T')[0] : undefined}
                       value={repeatEndDate}
-                      onChange={(e) => setRepeatEndDate(e.target.value)}
+                      onChange={(e) => {
+                        const selectedDate = e.target.value;
+                        // Validate that selected date is not after event date
+                        if (followUpEnquiry?.eventDate && selectedDate) {
+                          const eventDateStr = new Date(followUpEnquiry.eventDate).toISOString().split('T')[0];
+                          if (selectedDate > eventDateStr) {
+                            toast({
+                              title: "Invalid Date",
+                              description: "Repeat end date cannot be after the event date.",
+                              variant: "destructive",
+                            });
+                            return;
+                          }
+                        }
+                        setRepeatEndDate(selectedDate);
+                      }}
                       data-testid="input-repeat-end-date"
                     />
+                    {followUpEnquiry?.eventDate && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Must be on or before event date: {new Date(followUpEnquiry.eventDate).toLocaleDateString()}
+                      </p>
+                    )}
                   </div>
                 </>
               )}
@@ -1152,10 +1268,9 @@ export default function Enquiries() {
                 </Button>
                 <Button 
                   onClick={handleFollowUpSubmit}
-                  disabled={updateFollowUpMutation.isPending}
                   data-testid="button-save-follow-up"
                 >
-                  {updateFollowUpMutation.isPending ? "Saving..." : "Save Follow-up"}
+                  Save Follow-up
                 </Button>
               </div>
             </div>

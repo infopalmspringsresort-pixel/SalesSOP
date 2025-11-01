@@ -1719,56 +1719,74 @@ export class MongoStorage implements IStorage {
       const enquiriesCollection = await getCollection<Enquiry>('enquiries');
       const usersCollection = await getCollection<User>('users');
     
-    const matchStage: any = {};
-    
+    // Build date filter conditions for enquiries
+    const dateConditions: any[] = [];
     if (filters.dateFrom) {
-      matchStage.createdAt = { ...matchStage.createdAt, $gte: new Date(filters.dateFrom) };
+      dateConditions.push({ $gte: ['$createdAt', new Date(filters.dateFrom)] });
     }
     if (filters.dateTo) {
-      matchStage.createdAt = { ...matchStage.createdAt, $lte: new Date(filters.dateTo) };
+      // Add end of day to include all enquiries on the end date
+      const endDate = new Date(filters.dateTo);
+      endDate.setHours(23, 59, 59, 999);
+      dateConditions.push({ $lte: ['$createdAt', endDate] });
     }
 
+    // Build the match conditions for lookup pipeline
+    const lookupMatchConditions: any[] = [
+      { $eq: ['$salespersonId', '$$userId'] },
+      { $ne: ['$salespersonId', null] }
+    ];
 
+    if (dateConditions.length > 0) {
+      lookupMatchConditions.push(...dateConditions);
+    }
+
+    // Start from users collection and left join with enquiries
     const pipeline = [
-      { $match: matchStage },
-      // Convert salespersonId to ObjectId for lookup
+      // Get all active users
+      { $match: { status: { $ne: 'inactive' } } },
+      // Lookup enquiries assigned to this user (filtered by date if provided)
+      {
+        $lookup: {
+          from: 'enquiries',
+          let: { userId: '$_id' },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: lookupMatchConditions
+                }
+              }
+            }
+          ],
+          as: 'enquiries'
+        }
+      },
+      // Calculate metrics from enquiries
       {
         $addFields: {
-          salespersonIdObjectId: {
-            $cond: [
-              { $eq: [{ $type: '$salespersonId' }, 'string'] },
-              { $convert: { input: '$salespersonId', to: 'objectId' } },
-              '$salespersonId'
-            ]
+          totalEnquiries: { $size: '$enquiries' },
+          convertedEnquiries: {
+            $size: {
+              $filter: {
+                input: '$enquiries',
+                as: 'enq',
+                cond: { $in: ['$$enq.status', ['converted', 'booked']] }
+              }
+            }
+          },
+          lostEnquiries: {
+            $size: {
+              $filter: {
+                input: '$enquiries',
+                as: 'enq',
+                cond: { $eq: ['$$enq.status', 'lost'] }
+              }
+            }
           }
         }
       },
-      {
-        $lookup: {
-          from: 'users',
-          localField: 'salespersonIdObjectId',
-          foreignField: '_id',
-          as: 'salesperson'
-        }
-      },
-      { $unwind: { path: '$salesperson', preserveNullAndEmptyArrays: true } },
-      {
-        $group: {
-          _id: '$salespersonIdObjectId', // Use the converted ObjectId for grouping
-          salespersonName: { $first: { $concat: ['$salesperson.firstName', ' ', '$salesperson.lastName'] } },
-          totalEnquiries: { $sum: 1 },
-          convertedEnquiries: {
-            $sum: { $cond: [{ $in: ['$status', ['converted', 'booked']] }, 1, 0] }
-          },
-          lostEnquiries: {
-            $sum: { $cond: [{ $eq: ['$status', 'lost'] }, 1, 0] }
-          },
-          // Debug: show all statuses for this person
-          statuses: { $push: { status: '$status', id: '$_id' } },
-          // Debug: show all enquiry IDs for this person
-          enquiryIds: { $push: '$_id' }
-        }
-      },
+      // Calculate conversion rate
       {
         $addFields: {
           conversionRate: {
@@ -1777,26 +1795,55 @@ export class MongoStorage implements IStorage {
               { $multiply: [{ $divide: ['$convertedEnquiries', '$totalEnquiries'] }, 100] },
               0
             ]
+          },
+          salespersonName: {
+            $cond: [
+              { $and: ['$firstName', '$lastName'] },
+              { $concat: ['$firstName', ' ', '$lastName'] },
+              { $cond: [
+                '$firstName',
+                '$firstName',
+                { $cond: [
+                  '$lastName',
+                  '$lastName',
+                  { $cond: [
+                    '$email',
+                    '$email',
+                    'Unknown User'
+                  ]}
+                ]}
+              ]}
+            ]
           }
         }
       },
-      { $sort: { conversionRate: -1 } }
+      // Sort by conversion rate (descending), then by name
+      { $sort: { conversionRate: -1, salespersonName: 1 } },
+      // Project final structure
+      {
+        $project: {
+          _id: 1,
+          salespersonId: { $toString: '$_id' },
+          salespersonName: 1,
+          totalEnquiries: 1,
+          convertedEnquiries: 1,
+          lostEnquiries: 1,
+          conversionRate: { $round: ['$conversionRate', 2] }
+        }
+      }
     ];
 
-    const teamPerformance = await enquiriesCollection.aggregate(pipeline).toArray();
-
+    const teamPerformance = await usersCollection.aggregate(pipeline).toArray();
 
     return {
-      teamPerformance: teamPerformance
-        .filter(member => member._id !== null && member.salespersonName) // Filter out unassigned enquiries
-        .map(member => ({
-          salespersonId: member._id?.toString(),
-          salespersonName: member.salespersonName,
-          totalEnquiries: member.totalEnquiries,
-          convertedEnquiries: member.convertedEnquiries,
-          lostEnquiries: member.lostEnquiries,
-          conversionRate: Math.round(member.conversionRate * 100) / 100
-        }))
+      teamPerformance: teamPerformance.map(member => ({
+        salespersonId: member.salespersonId,
+        salespersonName: member.salespersonName || 'Unknown User',
+        totalEnquiries: member.totalEnquiries || 0,
+        convertedEnquiries: member.convertedEnquiries || 0,
+        lostEnquiries: member.lostEnquiries || 0,
+        conversionRate: member.conversionRate || 0
+      }))
     };
     } catch (error) {
       return {
