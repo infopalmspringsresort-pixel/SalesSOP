@@ -35,7 +35,7 @@ async function main() {
     // Salesperson: typical sales
     await upsertRole('salesperson', 'Salesperson', 'Sales operations', {
       enquiries: { create: true, read: true, update: true, delete: false },
-      bookings: { create: false, read: true, update: false, delete: false },
+      bookings: { create: true, read: true, update: true, delete: false },
       reports: { view: false },
       settings: { manage: false },
       audit: { view: false },
