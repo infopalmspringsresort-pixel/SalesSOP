@@ -46,7 +46,7 @@ export default function AdditionalItemForm({ open, onOpenChange, editingItem }: 
     resolver: zodResolver(formSchema),
     defaultValues: {
       name: "",
-      price: 0,
+      price: undefined,
       category: "",
       description: "",
       isVeg: true,
@@ -66,7 +66,7 @@ export default function AdditionalItemForm({ open, onOpenChange, editingItem }: 
     } else {
       form.reset({
         name: "",
-        price: 0,
+        price: undefined,
         category: "",
         description: "",
         isVeg: true,
@@ -196,9 +196,13 @@ export default function AdditionalItemForm({ open, onOpenChange, editingItem }: 
                     <FormControl>
                       <Input 
                         type="number" 
-                        placeholder="0" 
+                        placeholder="" 
                         {...field}
-                        onChange={(e) => field.onChange(Number(e.target.value))}
+                        value={field.value ?? ""}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          field.onChange(value === "" ? undefined : Number(value));
+                        }}
                       />
                     </FormControl>
                     <FormMessage />

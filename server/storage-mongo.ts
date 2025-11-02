@@ -383,6 +383,20 @@ export class MongoStorage implements IStorage {
         { clientName: { $regex: filters.search, $options: 'i' } }
       ];
     }
+    // Add date range filtering
+    if (filters?.dateFrom || filters?.dateTo) {
+      query.enquiryDate = {};
+      if (filters.dateFrom) {
+        const dateFrom = new Date(filters.dateFrom);
+        dateFrom.setHours(0, 0, 0, 0);
+        query.enquiryDate.$gte = dateFrom;
+      }
+      if (filters.dateTo) {
+        const dateTo = new Date(filters.dateTo);
+        dateTo.setHours(23, 59, 59, 999);
+        query.enquiryDate.$lte = dateTo;
+      }
+    }
 
     const enquiries = await enquiriesCollection
       .find(query)
@@ -413,21 +427,39 @@ export class MongoStorage implements IStorage {
           }
         }
 
-        // Check if follow-up is completed
+        // Check if follow-up is completed and get the earliest incomplete follow-up date
         let hasIncompleteFollowUp = false;
-        if (enquiry.followUpDate) {
-          const followUpHistoryCollection = await getCollection<FollowUpHistory>('follow_up_history');
-          const incompleteFollowUps = await followUpHistoryCollection.countDocuments({
+        let nextFollowUpDate = null;
+        const followUpHistoryCollection = await getCollection<FollowUpHistory>('follow_up_history');
+        
+        // First check if there are ANY follow-up history entries for this enquiry
+        const totalFollowUps = await followUpHistoryCollection.countDocuments({
+          enquiryId: enquiry._id
+        });
+        
+        // Only check for incomplete follow-ups if history entries exist
+        if (totalFollowUps > 0) {
+          const incompleteFollowUps = await followUpHistoryCollection.find({
             enquiryId: enquiry._id,
             completed: { $ne: true }
-          });
-          hasIncompleteFollowUp = incompleteFollowUps > 0;
+          }).sort({ followUpDate: 1 }).limit(1).toArray();
+          
+          if (incompleteFollowUps.length > 0) {
+            hasIncompleteFollowUp = true;
+            nextFollowUpDate = incompleteFollowUps[0].followUpDate;
+          }
+          // If all follow-ups are completed (incompleteFollowUps.length === 0), don't show any follow-up
+        } else if (enquiry.followUpDate) {
+          // Fallback to enquiry-level follow-up date ONLY if no history entries exist at all
+          hasIncompleteFollowUp = true;
+          nextFollowUpDate = enquiry.followUpDate;
         }
 
         return {
           ...this.toApiFormat(enquiry),
           salesperson,
           hasIncompleteFollowUp,
+          nextFollowUpDate,
         };
       })
     );
@@ -463,21 +495,39 @@ export class MongoStorage implements IStorage {
       }
     }
 
-    // Check if follow-up is completed
+    // Check if follow-up is completed and get the earliest incomplete follow-up date
     let hasIncompleteFollowUp = false;
-    if (enquiry.followUpDate) {
-      const followUpHistoryCollection = await getCollection<FollowUpHistory>('follow_up_history');
-      const incompleteFollowUps = await followUpHistoryCollection.countDocuments({
+    let nextFollowUpDate = null;
+    const followUpHistoryCollection = await getCollection<FollowUpHistory>('follow_up_history');
+    
+    // First check if there are ANY follow-up history entries for this enquiry
+    const totalFollowUps = await followUpHistoryCollection.countDocuments({
+      enquiryId: enquiry._id
+    });
+    
+    // Only check for incomplete follow-ups if history entries exist
+    if (totalFollowUps > 0) {
+      const incompleteFollowUps = await followUpHistoryCollection.find({
         enquiryId: enquiry._id,
         completed: { $ne: true }
-      });
-      hasIncompleteFollowUp = incompleteFollowUps > 0;
+      }).sort({ followUpDate: 1 }).limit(1).toArray();
+      
+      if (incompleteFollowUps.length > 0) {
+        hasIncompleteFollowUp = true;
+        nextFollowUpDate = incompleteFollowUps[0].followUpDate;
+      }
+      // If all follow-ups are completed (incompleteFollowUps.length === 0), don't show any follow-up
+    } else if (enquiry.followUpDate) {
+      // Fallback to enquiry-level follow-up date ONLY if no history entries exist at all
+      hasIncompleteFollowUp = true;
+      nextFollowUpDate = enquiry.followUpDate;
     }
 
     return {
       ...this.toApiFormat(enquiry),
       salesperson,
       hasIncompleteFollowUp,
+      nextFollowUpDate,
     };
   }
 
@@ -1166,6 +1216,20 @@ export class MongoStorage implements IStorage {
         { clientName: { $regex: filters.search, $options: 'i' } }
       ];
     }
+    // Add date range filtering based on eventDate
+    if (filters?.dateFrom || filters?.dateTo) {
+      query.eventDate = {};
+      if (filters.dateFrom) {
+        const dateFrom = new Date(filters.dateFrom);
+        dateFrom.setHours(0, 0, 0, 0);
+        query.eventDate.$gte = dateFrom;
+      }
+      if (filters.dateTo) {
+        const dateTo = new Date(filters.dateTo);
+        dateTo.setHours(23, 59, 59, 999);
+        query.eventDate.$lte = dateTo;
+      }
+    }
 
     const bookings = await bookingsCollection
       .find(query)
@@ -1200,6 +1264,8 @@ export class MongoStorage implements IStorage {
             clientName: enquiry.clientName,
             eventDate: enquiry.eventDate,
             status: enquiry.status,
+            city: enquiry.city,
+            source: enquiry.source,
           } : null,
           salesperson,
         };
@@ -1242,6 +1308,8 @@ export class MongoStorage implements IStorage {
         clientName: enquiry.clientName,
         eventDate: enquiry.eventDate,
         status: enquiry.status,
+        city: enquiry.city,
+        source: enquiry.source,
       } : null,
       salesperson,
     };

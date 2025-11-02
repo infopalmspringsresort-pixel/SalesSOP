@@ -67,9 +67,9 @@ export default function MenuItemForm({ open, onOpenChange, editingItem, packages
       category: "",
       name: "",
       description: "",
-      quantity: 1,
-      price: 0,
-      additionalPrice: 0,
+      quantity: undefined,
+      price: undefined,
+      additionalPrice: undefined,
       isVeg: true,
     },
   });
@@ -83,8 +83,8 @@ export default function MenuItemForm({ open, onOpenChange, editingItem, packages
         name: editingItem.name,
         description: editingItem.description || "",
         quantity: editingItem.quantity,
-        price: editingItem.price || 0,
-        additionalPrice: editingItem.additionalPrice || 0,
+        price: editingItem.price,
+        additionalPrice: editingItem.additionalPrice,
         isVeg: editingItem.isVeg !== undefined ? editingItem.isVeg : true,
       });
     } else {
@@ -93,9 +93,9 @@ export default function MenuItemForm({ open, onOpenChange, editingItem, packages
         category: "",
         name: "",
         description: "",
-        quantity: 1,
-        price: 0,
-        additionalPrice: 0,
+        quantity: undefined,
+        price: undefined,
+        additionalPrice: undefined,
         isVeg: true,
       });
     }
@@ -280,9 +280,13 @@ export default function MenuItemForm({ open, onOpenChange, editingItem, packages
                     <FormControl>
                       <Input 
                         type="number" 
-                        placeholder="0" 
+                        placeholder="" 
                         {...field}
-                        onChange={(e) => field.onChange(Number(e.target.value))}
+                        value={field.value ?? ""}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          field.onChange(value === "" ? undefined : Number(value));
+                        }}
                       />
                     </FormControl>
                     <p className="text-sm text-muted-foreground">

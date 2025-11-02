@@ -46,37 +46,53 @@ export default function Bookings() {
   const canAccessBookingModal = (booking: any) => {
     if (!user) return false;
     
-    // Admin can access all bookings
-    if (user.role?.name === 'admin') return true;
+    const userRole = user.role?.name || user.role;
+    const userId = user.id || user._id;
+    const isOwner = booking.salespersonId === userId || booking.salesperson?.id === userId;
     
-    // Check if user is the assigned salesperson
-    if (booking.salesperson?.id === user.id) return true;
+    // Staff: Cannot open any booking modal
+    if (userRole === 'staff') return false;
     
-    // Manager can access bookings assigned to their team members
-    if (user.role?.name === 'manager') {
-      // For now, managers can access all bookings
-      // You can add team membership logic here if needed
-      return true;
+    // Admin: Can open any booking modal
+    if (userRole === 'admin') return true;
+    
+    // Manager/Salesperson: Can open only their own bookings
+    if (userRole === 'manager' || userRole === 'salesperson') {
+      return isOwner;
     }
-    
-    // Staff can only view (read-only access)
-    if (user.role?.name === 'staff') return false;
     
     return false;
   };
 
   // Function to handle booking row click
   const handleBookingClick = (booking: any) => {
-    if (canAccessBookingModal(booking)) {
-      setSelectedBooking(booking);
-      setShowBookingDetails(true);
-    } else {
+    const userRole = user?.role?.name || user?.role;
+    const userId = user?.id || user?._id;
+    const isOwner = booking.salespersonId === userId || booking.salesperson?.id === userId;
+    
+    // Permission rules:
+    // Staff: Cannot open any booking modal
+    // Admin: Can open any booking modal
+    // Manager/Salesperson: Can open only their own bookings
+    if (userRole === 'staff') {
       toast({
-        title: "Access Denied",
-        description: "You can only access bookings assigned to you. Contact your manager if you need access to this booking.",
+        title: "Access Restricted",
+        description: "Staff users cannot view booking details.",
         variant: "destructive",
       });
+      return;
+    } else if ((userRole === 'manager' || userRole === 'salesperson') && !isOwner) {
+      toast({
+        title: "Access Restricted",
+        description: "You can only view details of bookings you own.",
+        variant: "destructive",
+      });
+      return;
     }
+    // Admin can access all bookings (no restriction needed)
+    
+    setSelectedBooking(booking);
+    setShowBookingDetails(true);
   };
 
   const { data: bookings = [], isLoading: bookingsLoading } = useQuery<any[]>({
@@ -97,8 +113,7 @@ export default function Bookings() {
     if (highlightParam && (bookings || []).length > 0) {
       const bookingToHighlight = (bookings || []).find(b => b.id === highlightParam);
       if (bookingToHighlight) {
-        setSelectedBooking(bookingToHighlight);
-        setShowBookingDetails(true);
+        handleBookingClick(bookingToHighlight);
       }
     }
   }, [bookings]);
@@ -415,16 +430,27 @@ export default function Bookings() {
                     'TBD'
                   }
                                 </div>
-                                {canAccessBookingModal(booking) && (
-                                  <div className="text-xs text-green-600 dark:text-green-400 font-medium">
-                                    ✓ You can manage
-                                  </div>
-                                )}
-                                {!canAccessBookingModal(booking) && user?.role?.name !== 'admin' && (
-                                  <div className="text-xs text-muted-foreground">
-                                    View only
-                                  </div>
-                                )}
+                                {(() => {
+                                  const userRole = user?.role?.name || user?.role;
+                                  if (userRole === 'staff') {
+                                    return (
+                                      <div className="text-xs text-muted-foreground">
+                                        View only
+                                      </div>
+                                    );
+                                  }
+                                  if (canAccessBookingModal(booking)) {
+                                    return null; // Don't show extra text if user can access
+                                  }
+                                  if (userRole === 'manager' || userRole === 'salesperson') {
+                                    return (
+                                      <div className="text-xs text-muted-foreground">
+                                        View only
+                                      </div>
+                                    );
+                                  }
+                                  return null;
+                                })()}
                               </td>
                               <td className="px-6 py-4 align-top">
                                 <Badge className={getStatusColor(booking.status || 'booked')}>
@@ -446,10 +472,7 @@ export default function Bookings() {
                         <Card 
                           key={booking.id} 
                           className="cursor-pointer hover:shadow-lg transition-all border-l-4 border-l-green-400 shadow-md border-0 touch-manipulation min-h-[120px]"
-                          onClick={() => {
-                            setSelectedBooking(booking);
-                            setShowBookingDetails(true);
-                          }}
+                          onClick={() => handleBookingClick(booking)}
                           data-testid={`booking-card-${booking.id}`}
                         >
                           <CardContent className="p-4 touch-manipulation">

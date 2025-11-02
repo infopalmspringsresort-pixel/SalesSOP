@@ -618,12 +618,12 @@ export default function Enquiries() {
                         if (followUpFilter === "overdue") {
                           // Skip booked enquiries - they don't need follow-ups
                           if (enquiry.status === "booked") return false;
-                          const hasOverdueFollowUp = enquiry.followUpDate && new Date(enquiry.followUpDate) < new Date();
+                          const hasOverdueFollowUp = enquiry.nextFollowUpDate && new Date(enquiry.nextFollowUpDate) < new Date();
                           if (!hasOverdueFollowUp) return false;
                         } else if (followUpFilter === "pending") {
                           // Skip booked enquiries - they don't need follow-ups
                           if (enquiry.status === "booked") return false;
-                          const hasPendingFollowUp = enquiry.followUpDate && new Date(enquiry.followUpDate) >= new Date();
+                          const hasPendingFollowUp = enquiry.nextFollowUpDate && new Date(enquiry.nextFollowUpDate) >= new Date();
                           if (!hasPendingFollowUp) return false;
                         }
                         
@@ -717,14 +717,14 @@ export default function Enquiries() {
                               <div className="text-xs text-muted-foreground">
                                 Updated: {formatDate(enquiry.updatedAt)}
                               </div>
-                              {enquiry.followUpDate && enquiry.status !== 'booked' && enquiry.hasIncompleteFollowUp && (
+                              {enquiry.nextFollowUpDate && enquiry.status !== 'booked' && (
                                 <div className={`text-xs p-2 rounded-lg font-medium shadow-sm ${
-                                  new Date(enquiry.followUpDate) < new Date() 
+                                  new Date(enquiry.nextFollowUpDate) < new Date() 
                                     ? 'bg-red-50 text-red-700 border border-red-200' 
                                     : 'bg-orange-50 text-orange-700 border border-orange-200'
                                 }`}>
-                                  📅 Follow-up: {formatDate(enquiry.followUpDate)}
-                                  {new Date(enquiry.followUpDate) < new Date() && (
+                                  📅 Follow-up: {formatDate(enquiry.nextFollowUpDate)}
+                                  {new Date(enquiry.nextFollowUpDate) < new Date() && (
                                     <span className="font-bold"> (OVERDUE)</span>
                                   )}
                                 </div>
@@ -908,12 +908,12 @@ export default function Enquiries() {
                       if (followUpFilter === "overdue") {
                         // Skip booked enquiries - they don't need follow-ups
                         if (enquiry.status === "booked") return false;
-                        const hasOverdueFollowUp = enquiry.followUpDate && new Date(enquiry.followUpDate) < new Date();
+                        const hasOverdueFollowUp = enquiry.nextFollowUpDate && new Date(enquiry.nextFollowUpDate) < new Date();
                         if (!hasOverdueFollowUp) return false;
                       } else if (followUpFilter === "pending") {
                         // Skip booked enquiries - they don't need follow-ups
                         if (enquiry.status === "booked") return false;
-                        const hasPendingFollowUp = enquiry.followUpDate && new Date(enquiry.followUpDate) >= new Date();
+                        const hasPendingFollowUp = enquiry.nextFollowUpDate && new Date(enquiry.nextFollowUpDate) >= new Date();
                         if (!hasPendingFollowUp) return false;
                       }
                       
@@ -998,14 +998,14 @@ export default function Enquiries() {
                               <span className="font-medium">{formatDate(enquiry.eventDate)} • {enquiry.expectedPax} PAX • {getEventTypeLabel(enquiry.eventType)}</span>
                             </div>
                             
-                            {enquiry.followUpDate && (
+                            {enquiry.nextFollowUpDate && enquiry.status !== 'booked' && (
                               <div className={`text-sm p-3 rounded-xl border shadow-md font-medium ${
-                                new Date(enquiry.followUpDate) < new Date() 
+                                new Date(enquiry.nextFollowUpDate) < new Date() 
                                   ? 'bg-red-50 text-red-700 border-red-200' 
                                   : 'bg-orange-50 text-orange-700 border-orange-200'
                               }`}>
-                                📅 Follow-up: {formatDate(enquiry.followUpDate)}
-                                {new Date(enquiry.followUpDate) < new Date() && (
+                                📅 Follow-up: {formatDate(enquiry.nextFollowUpDate)}
+                                {new Date(enquiry.nextFollowUpDate) < new Date() && (
                                   <span className="font-bold"> (OVERDUE)</span>
                                 )}
                               </div>

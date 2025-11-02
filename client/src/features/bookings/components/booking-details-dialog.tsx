@@ -182,7 +182,7 @@ export default function BookingDetailsDialog({ booking, open, onOpenChange }: Bo
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="details" className="space-y-4 sm:space-y-6 min-h-[500px]">
+          <TabsContent value="details" className="space-y-4">
             {/* Change Status Actions */}
             <div className="flex flex-col sm:flex-row justify-end gap-2">
               <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
@@ -214,35 +214,32 @@ export default function BookingDetailsDialog({ booking, open, onOpenChange }: Bo
               </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               {/* Basic Information */}
               <Card>
                 <CardHeader>
                   <CardTitle className="text-lg">Basic Information</CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-3">
+                <CardContent className="space-y-3 pb-4">
                   <div className="flex items-center gap-2">
-                    <Calendar className="w-4 h-4 text-muted-foreground" />
-                    <Label className="font-medium">Booking Date:</Label>
-                    <span>{format(new Date(booking.createdAt), "dd MMMM, yyyy")}</span>
-                  </div>
-                  
-                  <div className="flex items-center gap-2">
-                    <Badge className={getStatusColor(booking.status || "booked")}>
+                    <Calendar className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                    <Label className="font-medium text-sm">Booking Date:</Label>
+                    <span className="text-sm">{format(new Date(booking.createdAt), "dd MMMM, yyyy")}</span>
+                    <Badge className={getStatusColor(booking.status || "booked")} variant="secondary">
                       {getStatusLabel(booking.status || "booked")}
                     </Badge>
                   </div>
 
                   <Separator />
 
-                  <div>
-                    <Label className="font-medium">Client Name:</Label>
-                    <p className="text-sm">{booking.clientName}</p>
+                  <div className="flex items-center gap-2">
+                    <Label className="font-medium text-sm">Client Name:</Label>
+                    <span className="text-sm">{booking.clientName}</span>
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <Phone className="w-4 h-4 text-muted-foreground" />
-                    <Label className="font-medium">Contact:</Label>
+                    <Phone className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                    <Label className="font-medium text-sm">Contact:</Label>
                     <a 
                       href={`tel:${booking.contactNumber}`} 
                       className="text-sm text-blue-600 hover:text-blue-800 hover:underline cursor-pointer transition-colors"
@@ -255,31 +252,33 @@ export default function BookingDetailsDialog({ booking, open, onOpenChange }: Bo
 
                   {booking.email && (
                     <div className="flex items-center gap-2">
-                      <Mail className="w-4 h-4 text-muted-foreground" />
-                      <Label className="font-medium">Email:</Label>
+                      <Mail className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                      <Label className="font-medium text-sm">Email:</Label>
                       <span className="text-sm">{booking.email}</span>
                     </div>
                   )}
 
                   <div className="flex items-center gap-2">
-                    <MapPin className="w-4 h-4 text-muted-foreground" />
-                    <Label className="font-medium">Source:</Label>
+                    <MapPin className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                    <Label className="font-medium text-sm">Source:</Label>
                     <span className="text-sm">{getSourceLabel(booking.enquirySource || 'direct')}</span>
                   </div>
 
-                  <div>
-                    <Label className="font-medium">Enquiry Number:</Label>
-                    <p className="text-sm font-mono">{booking.enquiryNumber}</p>
-                  </div>
+                  {booking.enquiryNumber && (
+                    <div className="flex items-center gap-2">
+                      <Label className="font-medium text-sm">Enquiry Number:</Label>
+                      <span className="text-sm font-mono">{booking.enquiryNumber}</span>
+                    </div>
+                  )}
 
-                  <div>
-                    <Label className="font-medium">Salesperson:</Label>
-                    <p className="text-sm">
+                  <div className="flex items-center gap-2">
+                    <Label className="font-medium text-sm">Salesperson:</Label>
+                    <span className="text-sm">
                       {booking.salesperson?.firstName && booking.salesperson?.lastName ? 
                         `${booking.salesperson.firstName} ${booking.salesperson.lastName}` : 
                         'TBD'
                       }
-                    </p>
+                    </span>
                   </div>
                 </CardContent>
               </Card>
@@ -289,29 +288,29 @@ export default function BookingDetailsDialog({ booking, open, onOpenChange }: Bo
                 <CardHeader>
                   <CardTitle className="text-lg">Event Information</CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="flex items-center gap-2">
-                    <Calendar className="w-4 h-4 text-muted-foreground" />
-                    <Label className="font-medium">Event Date{booking.eventDuration > 1 ? 's' : ''}:</Label>
-                    <span>
+                <CardContent className="space-y-3 pb-4">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Calendar className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                    <Label className="font-medium text-sm">Event Date{booking.eventDuration > 1 ? 's' : ''}:</Label>
+                    <span className="text-sm">
                       {booking.eventDuration > 1 && booking.eventEndDate ? (
                         `${formatDate(booking.eventDate)} to ${formatDate(booking.eventEndDate)}`
                       ) : (
                         formatDate(booking.eventDate)
                       )}
-                      {booking.eventDuration > 1 && (
-                        <span className="ml-2 text-blue-600 dark:text-blue-400 font-medium text-xs">
-                          ({booking.eventDuration} Day Event)
-                        </span>
-                      )}
                     </span>
+                    {booking.eventDuration > 1 && (
+                      <span className="text-blue-600 dark:text-blue-400 font-medium text-xs">
+                        ({booking.eventDuration} Day Event)
+                      </span>
+                    )}
                   </div>
 
                   {/* Show all event dates for multi-day events */}
                   {booking.eventDuration > 1 && (
-                    <div>
-                      <Label className="font-medium">All Event Dates:</Label>
-                      <div className="flex flex-wrap gap-1 mt-1">
+                    <div className="flex items-start gap-2">
+                      <Label className="font-medium text-sm">All Event Dates:</Label>
+                      <div className="flex flex-wrap gap-1">
                         {booking.eventDates && Array.isArray(booking.eventDates) && booking.eventDates.length > 0 ? (
                           booking.eventDates.map((date: string, index: number) => (
                             <Badge key={index} variant="default" className="text-xs bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
@@ -325,30 +324,30 @@ export default function BookingDetailsDialog({ booking, open, onOpenChange }: Bo
                     </div>
                   )}
 
-                  <div>
-                    <Label className="font-medium">Event Type:</Label>
-                    <p className="text-sm">{booking.eventType?.replace('_', ' ') || 'Event'}</p>
+                  <div className="flex items-center gap-2">
+                    <Label className="font-medium text-sm">Event Type:</Label>
+                    <span className="text-sm">{booking.eventType?.replace('_', ' ') || 'Event'}</span>
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <Users className="w-4 h-4 text-muted-foreground" />
-                    <Label className="font-medium">Confirmed Pax:</Label>
+                    <Users className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                    <Label className="font-medium text-sm">Confirmed Pax:</Label>
                     <span className="text-sm">{booking.confirmedPax}</span>
                   </div>
 
                   {booking.hall && (
                     <div className="flex items-center gap-2">
-                      <MapPin className="w-4 h-4 text-muted-foreground" />
-                      <Label className="font-medium">Venue:</Label>
+                      <MapPin className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                      <Label className="font-medium text-sm">Venue:</Label>
                       <span className="text-sm">{booking.hall}</span>
                     </div>
                   )}
 
-                  <div>
-                    <Label className="font-medium">Contract Status:</Label>
-                    <p className={`text-sm font-medium ${booking.contractSigned ? 'text-green-600' : 'text-orange-600'}`}>
+                  <div className="flex items-center gap-2">
+                    <Label className="font-medium text-sm">Contract Status:</Label>
+                    <span className={`text-sm font-medium ${booking.contractSigned ? 'text-green-600' : 'text-orange-600'}`}>
                       {booking.contractSigned ? '✓ Contract Signed' : 'Pending Contract'}
-                    </p>
+                    </span>
                   </div>
                 </CardContent>
               </Card>
@@ -434,7 +433,7 @@ export default function BookingDetailsDialog({ booking, open, onOpenChange }: Bo
 
           </TabsContent>
           
-          <TabsContent value="history" className="space-y-4 sm:space-y-6 min-h-[500px]">
+          <TabsContent value="history" className="space-y-4">
             <div>
               <h3 className="text-lg font-semibold mb-4">Booking History</h3>
               <p className="text-sm text-muted-foreground mb-6">

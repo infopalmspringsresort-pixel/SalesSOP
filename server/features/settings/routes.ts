@@ -296,13 +296,27 @@ export function registerSettingsRoutes(app: Express) {
       }
       
       // Format customer data
-      const customerData = filteredEnquiries.map(enquiry => ({
+      const allCustomerData = filteredEnquiries.map(enquiry => ({
         customerName: enquiry.clientName || 'N/A',
         location: (enquiry as any).city || 'N/A',
         phone: enquiry.contactNumber || 'N/A',
         email: enquiry.email || 'N/A',
         eventType: enquiry.eventType || 'N/A'
       }));
+      
+      // Remove duplicates based on phone number - keep only one entry per phone number
+      const seenPhones = new Set<string>();
+      const customerData = allCustomerData.filter(customer => {
+        const phone = customer.phone.trim();
+        if (!phone || phone === 'N/A') {
+          return true; // Keep entries without phone numbers
+        }
+        if (seenPhones.has(phone)) {
+          return false; // Duplicate phone number
+        }
+        seenPhones.add(phone);
+        return true; // First occurrence of this phone number
+      });
       
       // Log first 3 records
 

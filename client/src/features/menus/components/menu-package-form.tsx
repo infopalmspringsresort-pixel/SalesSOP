@@ -40,6 +40,7 @@ export default function MenuPackageForm({ open, onOpenChange, editingPackage }: 
     defaultValues: {
       name: "",
       type: "veg",
+      price: 0,
       description: "",
     },
   });
@@ -50,12 +51,14 @@ export default function MenuPackageForm({ open, onOpenChange, editingPackage }: 
       form.reset({
         name: editingPackage.name,
         type: editingPackage.type,
+        price: editingPackage.price || 0,
         description: editingPackage.description || "",
       });
     } else {
       form.reset({
         name: "",
         type: "veg",
+        price: 0,
         description: "",
       });
     }

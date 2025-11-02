@@ -279,10 +279,8 @@ export default function MenuSelectionFlow({ open, onOpenChange, onSave }: MenuSe
                   return sum + (!item.isPackageItem ? (item.additionalPrice || 0) : 0);
                 }, 0) || 0;
                 
-                // Package price + additional items
+                // Package price + additional items (without GST - GST will be added in final quote)
                 const totalPrice = packagePrice + additionalPrice;
-                const gst = menuPackage.gst || 18;
-                const totalWithGst = totalPrice + (totalPrice * gst / 100);
 
                 return (
                   <Card className="relative">
@@ -304,7 +302,7 @@ export default function MenuSelectionFlow({ open, onOpenChange, onSave }: MenuSe
                               Additional Items: +₹{additionalPrice}
                             </p>
                             <p className="text-sm font-bold text-blue-600">
-                              Total Price: ₹{Math.round(totalWithGst)} (including {gst}% GST)
+                              Total Price: ₹{totalPrice}
                             </p>
                           </div>
                         )}
@@ -398,10 +396,8 @@ export default function MenuSelectionFlow({ open, onOpenChange, onSave }: MenuSe
                   return sum + (!item.isPackageItem ? (item.additionalPrice || 0) : 0);
                 }, 0) || 0;
                 
-                // Selected items price + additional items
+                // Selected items price + additional items (without GST - GST will be added in final quote)
                 const totalPrice = selectedPackageItemsPrice + additionalPrice;
-                const gst = menuPackage.gst || 18;
-                const totalWithGst = totalPrice + (totalPrice * gst / 100);
 
                 return (
                   <Card>
@@ -417,7 +413,7 @@ export default function MenuSelectionFlow({ open, onOpenChange, onSave }: MenuSe
                               Additional Items: +₹{additionalPrice}
                             </p>
                             <p className="text-sm font-bold text-blue-600">
-                              Total Price: ₹{Math.round(totalWithGst)} (including {gst}% GST)
+                              Total Price: ₹{totalPrice}
                             </p>
                           </div>
                         )}

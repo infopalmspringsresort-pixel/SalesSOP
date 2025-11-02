@@ -79,7 +79,7 @@ const CITIES = [
 
 // Remove duplicates and keep order with priority cities first
 const PRIORITY_CITIES = ["Nashik", "Mumbai", "Pune"];
-const uniqueCities = Array.from(
+export const uniqueCities = Array.from(
   new Set([
     ...PRIORITY_CITIES,
     ...CITIES.filter((city) => !PRIORITY_CITIES.includes(city)),

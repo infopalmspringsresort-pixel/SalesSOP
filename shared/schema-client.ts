@@ -221,10 +221,10 @@ export const menuItemSchema = z.object({
   category: z.string(), // e.g., "Welcome Drinks", "Soup Station", "Main Course"
   name: z.string(), // e.g., "Chicken Biryani", "Dal Tadka"
   description: z.string().optional(),
-  quantity: z.number().default(1), // Number of items in this category
-  price: z.number().default(0), // Individual item price (contributes to package total)
-  additionalPrice: z.number().default(0), // Extra charge if applicable (for additional items)
-  isVeg: z.boolean().default(true), // Vegetarian or Non-Vegetarian
+  quantity: z.number().optional().default(1), // Number of items in this category
+  price: z.number().min(1, "Price must be at least 1"), // Individual item price (contributes to package total)
+  additionalPrice: z.number().optional().default(0), // Extra charge if applicable (for additional items)
+  isVeg: z.boolean().optional().default(true), // Vegetarian or Non-Vegetarian
   createdAt: z.date().optional(),
   updatedAt: z.date().optional(),
 });
@@ -233,12 +233,12 @@ export const menuItemSchema = z.object({
 export const additionalItemSchema = z.object({
   id: z.string().optional(),
   name: z.string(), // e.g., "Juice Mocktail", "Soup"
-  price: z.number(), // Price per person
-  currency: z.string().default('INR'),
+  price: z.number().min(1, "Price must be at least 1"), // Price per person
+  currency: z.string().optional().default('INR'),
   category: z.string(), // e.g., "Beverages", "Starters", "Desserts"
   description: z.string().optional(),
-  isVeg: z.boolean().default(true),
-  isActive: z.boolean().default(true),
+  isVeg: z.boolean().optional().default(true),
+  isActive: z.boolean().optional().default(true),
   createdAt: z.date().optional(),
   updatedAt: z.date().optional(),
 });

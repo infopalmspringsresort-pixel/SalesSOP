@@ -358,8 +358,6 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
       }, 0) || 0;
       
       const menuTotal = menuPackagesData.reduce((sum, pkg) => {
-        const gst = pkg.gst || 18;
-        
         // Calculate selected package items price (using actual item prices)
         const selectedPackageItemsPrice = pkg.selectedItems?.reduce((itemSum: number, item: any) => {
           return itemSum + (item.isPackageItem ? (item.price || 0) : 0);
@@ -371,9 +369,9 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
           return itemSum + (!item.isPackageItem ? (item.additionalPrice || 0) : 0);
         }, 0) || 0;
         
-        // Selected items price + additional items, then apply GST to the total
-        const totalBeforeGst = selectedPackageItemsPrice + additionalItemsTotal;
-        return sum + totalBeforeGst + (totalBeforeGst * gst / 100);
+        // Selected items price + additional items (without GST - GST will be added later in final quote)
+        const totalPrice = selectedPackageItemsPrice + additionalItemsTotal;
+        return sum + totalPrice;
       }, 0);
       
       const grandTotal = venueTotal + roomQuotationTotal + menuTotal;
@@ -677,10 +675,8 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
                         return sum + (!item.isPackageItem ? (item.additionalPrice || 0) : 0);
                       }, 0) || 0;
                       
-                      // Selected items price + additional items
+                      // Selected items price + additional items (without GST - GST will be added in final quote)
                       const totalPrice = selectedPackageItemsPrice + additionalPrice;
-                      const gst = selectedPackage.gst || 18;
-                      const totalWithGst = totalPrice + (totalPrice * gst / 100);
                       
                       const packageItemsCount = customData?.selectedItems?.filter((item: any) => item.isPackageItem).length || 0;
                       const additionalItemsCount = customData?.selectedItems?.filter((item: any) => !item.isPackageItem).length || 0;
@@ -719,8 +715,8 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
                               <span className="ml-2 font-medium">{packageItemsCount} items</span>
                             </div>
                             <div>
-                              <span className="text-green-700">Total (with {gst}% GST):</span>
-                              <span className="ml-2 font-bold text-green-800">₹{Math.round(totalWithGst)}</span>
+                              <span className="text-green-700">Total:</span>
+                              <span className="ml-2 font-bold text-green-800">₹{totalPrice}</span>
                             </div>
                           </div>
                           

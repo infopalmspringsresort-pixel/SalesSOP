@@ -10,6 +10,7 @@ import { DatePickerWithRange } from "@/components/ui/date-range-picker";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import { uniqueCities } from "@/components/ui/city-autocomplete";
 import { 
   TrendingUp, 
   TrendingDown, 
@@ -92,7 +93,21 @@ export default function Reports() {
 
   // Fetch all enquiries for client-side filtering
   const { data: allEnquiries = [], isLoading: enquiriesLoading } = useQuery<any[]>({
-    queryKey: ["/api/enquiries"],
+    queryKey: [`/api/enquiries?${queryParams.toString()}`],
+    enabled: isAuthenticated,
+    refetchOnWindowFocus: false,
+  });
+
+  // Fetch all bookings for client-side filtering
+  const { data: allBookings = [], isLoading: bookingsLoading } = useQuery<any[]>({
+    queryKey: [`/api/bookings?${queryParams.toString()}`],
+    enabled: isAuthenticated,
+    refetchOnWindowFocus: false,
+  });
+
+  // Fetch all users for salesperson name mapping
+  const { data: allUsers = [] } = useQuery<any[]>({
+    queryKey: ["/api/users"],
     enabled: isAuthenticated,
     refetchOnWindowFocus: false,
   });
@@ -389,7 +404,7 @@ export default function Reports() {
   };
 
   const renderBookingReport = () => {
-    if (bookingLoading) {
+    if (bookingLoading || bookingsLoading) {
       return <div className="flex items-center justify-center h-64">Loading report...</div>;
     }
 
@@ -397,13 +412,27 @@ export default function Reports() {
       return <div className="text-center text-gray-500 mt-8">No data available for selected filters</div>;
     }
 
-    // Debug logging
-    const totalBookings = (bookingReport as any).totalBookings || 0;
-    const totalRevenue = (bookingReport as any).totalRevenue || 0;
-    const avgBookingValue = (bookingReport as any).avgBookingValue || 0;
-    const avgDuration = (bookingReport as any).avgDuration || 0;
-    const statusBreakdown = (bookingReport as any).statusBreakdown || {};
-    const eventTypeBreakdown = (bookingReport as any).eventTypeBreakdown || {};
+    // Filter bookings based on selected filters
+    const filteredBookings = (allBookings || []).filter((booking: any) => {
+      if (cityFilter !== "all" && booking.enquiry?.city !== cityFilter) return false;
+      if (sourceFilter !== "all" && booking.enquiry?.source !== sourceFilter) return false;
+      if (eventTypeFilter !== "all" && booking.eventType !== eventTypeFilter) return false;
+      return true;
+    });
+
+    // Calculate metrics from filtered bookings
+    const totalBookings = filteredBookings.length;
+    const totalRevenue = filteredBookings.reduce((sum, b) => sum + (b.totalAmount || 0), 0);
+    const avgBookingValue = totalBookings > 0 ? totalRevenue / totalBookings : 0;
+    const avgDuration = filteredBookings.reduce((sum, b) => sum + (b.eventDuration || 1), 0) / (totalBookings || 1);
+    
+    const statusBreakdown: any = {};
+    const eventTypeBreakdown: any = {};
+    
+    filteredBookings.forEach((booking: any) => {
+      statusBreakdown[booking.status] = (statusBreakdown[booking.status] || 0) + 1;
+      eventTypeBreakdown[booking.eventType] = (eventTypeBreakdown[booking.eventType] || 0) + 1;
+    });
 
     try {
       return (
@@ -481,7 +510,7 @@ export default function Reports() {
   };
 
   const renderTeamReport = () => {
-    if (teamLoading) {
+    if (teamLoading || enquiriesLoading) {
       return <div className="flex items-center justify-center h-64">Loading report...</div>;
     }
 
@@ -489,8 +518,55 @@ export default function Reports() {
       return <div className="text-center text-gray-500 mt-8">No data available for selected filters</div>;
     }
 
-    const teamPerformance = (teamReport as any).teamPerformance || [];
-    const summary = (teamReport as any).summary || { totalUsers: 0, totalEnquiries: 0, averageConversionRate: 0 };
+    // Filter enquiries based on selected filters
+    const filteredEnquiries = (allEnquiries || []).filter((enquiry: any) => {
+      if (cityFilter !== "all" && enquiry.city !== cityFilter) return false;
+      if (sourceFilter !== "all" && enquiry.source !== sourceFilter) return false;
+      if (eventTypeFilter !== "all" && enquiry.eventType !== eventTypeFilter) return false;
+      return true;
+    });
+
+    // Recalculate team performance based on filtered enquiries
+    const teamPerformanceMap: any = {};
+    filteredEnquiries.forEach((enquiry: any) => {
+      if (!enquiry.salespersonId) return;
+      const salespersonId = enquiry.salespersonId;
+      
+      if (!teamPerformanceMap[salespersonId]) {
+        const salesperson = allUsers.find((u: any) => u.id === salespersonId);
+        const salespersonName = salesperson 
+          ? `${salesperson.firstName || ''} ${salesperson.lastName || ''}`.trim() || salesperson.email
+          : "Unknown";
+        
+        teamPerformanceMap[salespersonId] = {
+          salespersonId,
+          salespersonName,
+          totalEnquiries: 0,
+          convertedEnquiries: 0,
+          lostEnquiries: 0,
+        };
+      }
+      
+      teamPerformanceMap[salespersonId].totalEnquiries++;
+      if (enquiry.status === 'converted' || enquiry.status === 'booked') {
+        teamPerformanceMap[salespersonId].convertedEnquiries++;
+      } else if (enquiry.status === 'lost') {
+        teamPerformanceMap[salespersonId].lostEnquiries++;
+      }
+    });
+
+    const teamPerformance = Object.values(teamPerformanceMap).map((member: any) => ({
+      ...member,
+      conversionRate: member.totalEnquiries > 0 ? (member.convertedEnquiries / member.totalEnquiries) * 100 : 0,
+    }));
+
+    const summary = {
+      totalUsers: teamPerformance.length,
+      totalEnquiries: teamPerformance.reduce((sum, member) => sum + member.totalEnquiries, 0),
+      averageConversionRate: teamPerformance.length > 0
+        ? teamPerformance.reduce((sum, member) => sum + member.conversionRate, 0) / teamPerformance.length
+        : 0,
+    };
 
     return (
       <div className="space-y-6">
@@ -650,65 +726,63 @@ export default function Reports() {
                   </div>
                 </div>
                 
-                {/* Show additional filters only for Enquiry & Follow-up tab */}
-                {activeTab === "enquiry-pipeline" && (
-                  <>
-                    <div className="flex-1">
-                      <Label className="text-sm font-medium mb-1.5 block">City</Label>
-                      <Select value={cityFilter} onValueChange={setCityFilter}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="All Cities" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">All Cities</SelectItem>
-                          {Array.from(new Set(allEnquiries.map((e: any) => e.city).filter(Boolean))).map((city: string) => (
-                            <SelectItem key={city} value={city}>{city}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                {/* Show additional filters for all tabs */}
+                <>
+                  <div className="flex-1">
+                    <Label className="text-sm font-medium mb-1.5 block">City</Label>
+                    <Select value={cityFilter} onValueChange={setCityFilter}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="All Cities" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Cities</SelectItem>
+                        {uniqueCities.map((city: string) => (
+                          <SelectItem key={city} value={city}>{city}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
 
-                    <div className="flex-1">
-                      <Label className="text-sm font-medium mb-1.5 block">Source</Label>
-                      <Select value={sourceFilter} onValueChange={setSourceFilter}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="All Sources" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">All Sources</SelectItem>
-                          <SelectItem value="Walk-in">Walk-in</SelectItem>
-                          <SelectItem value="Phone Call">Phone Call</SelectItem>
-                          <SelectItem value="Website / Online Form">Website / Online Form</SelectItem>
-                          <SelectItem value="WhatsApp / Social Media">WhatsApp / Social Media</SelectItem>
-                          <SelectItem value="Travel Agent / Broker">Travel Agent / Broker</SelectItem>
-                          <SelectItem value="Corporate">Corporate</SelectItem>
-                          <SelectItem value="Event Planner">Event Planner</SelectItem>
-                          <SelectItem value="Referral (Past Client / Staff)">Referral (Past Client / Staff)</SelectItem>
-                          <SelectItem value="Other">Other</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
+                  <div className="flex-1">
+                    <Label className="text-sm font-medium mb-1.5 block">Source</Label>
+                    <Select value={sourceFilter} onValueChange={setSourceFilter}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="All Sources" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Sources</SelectItem>
+                        <SelectItem value="Walk-in">Walk-in</SelectItem>
+                        <SelectItem value="Phone Call">Phone Call</SelectItem>
+                        <SelectItem value="Website / Online Form">Website / Online Form</SelectItem>
+                        <SelectItem value="WhatsApp / Social Media">WhatsApp / Social Media</SelectItem>
+                        <SelectItem value="Travel Agent / Broker">Travel Agent / Broker</SelectItem>
+                        <SelectItem value="Corporate">Corporate</SelectItem>
+                        <SelectItem value="Event Planner">Event Planner</SelectItem>
+                        <SelectItem value="Referral (Past Client / Staff)">Referral (Past Client / Staff)</SelectItem>
+                        <SelectItem value="Other">Other</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
 
-                    <div className="flex-1">
-                      <Label className="text-sm font-medium mb-1.5 block">Event Type</Label>
-                      <Select value={eventTypeFilter} onValueChange={setEventTypeFilter}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="All Event Types" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">All Event Types</SelectItem>
-                          <SelectItem value="wedding">Wedding</SelectItem>
-                          <SelectItem value="corporate">Corporate</SelectItem>
-                          <SelectItem value="birthday">Birthday</SelectItem>
-                          <SelectItem value="anniversary">Anniversary</SelectItem>
-                          <SelectItem value="social">Social</SelectItem>
-                          <SelectItem value="conference">Conference</SelectItem>
-                          <SelectItem value="other">Other</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </>
-                )}
+                  <div className="flex-1">
+                    <Label className="text-sm font-medium mb-1.5 block">Event Type</Label>
+                    <Select value={eventTypeFilter} onValueChange={setEventTypeFilter}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="All Event Types" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Event Types</SelectItem>
+                        <SelectItem value="wedding">Wedding</SelectItem>
+                        <SelectItem value="corporate">Corporate</SelectItem>
+                        <SelectItem value="birthday">Birthday</SelectItem>
+                        <SelectItem value="anniversary">Anniversary</SelectItem>
+                        <SelectItem value="social">Social</SelectItem>
+                        <SelectItem value="conference">Conference</SelectItem>
+                        <SelectItem value="other">Other</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </>
               </div>
             </CardContent>
           </Card>

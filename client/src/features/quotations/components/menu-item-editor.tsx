@@ -453,8 +453,6 @@ export default function MenuItemEditor({ open, onOpenChange, menuPackage, onSave
                     }, 0);
                     
                     const adjustedPrice = selectedPackageItemsPrice + additionalCost;
-                    const gst = menuPackage.gst || 18;
-                    const finalPrice = adjustedPrice + (adjustedPrice * gst / 100);
                     
                     return (
                       <>
@@ -475,8 +473,8 @@ export default function MenuItemEditor({ open, onOpenChange, menuPackage, onSave
                           <span>₹{Math.round(adjustedPrice)}</span>
                         </div>
                         <div className="flex justify-between font-bold text-blue-600">
-                          <span>Total (incl. {gst}% GST):</span>
-                          <span>₹{Math.round(finalPrice)}</span>
+                          <span>Total:</span>
+                          <span>₹{Math.round(adjustedPrice)}</span>
                         </div>
                       </>
                     );
