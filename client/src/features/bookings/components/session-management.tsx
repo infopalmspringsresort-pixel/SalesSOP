@@ -10,6 +10,7 @@ import { Plus, Trash2, Clock, MapPin, AlertTriangle, Calendar } from "lucide-rea
 import { useQuery } from "@tanstack/react-query";
 import type { BookingWithRelations } from "@/types";
 import { useSessionConflicts } from "../hooks/use-session-conflicts";
+import { TimePicker } from "@/components/ui/time-picker";
 
 interface Session {
   id: string;
