@@ -323,6 +323,10 @@ export const roomPackageSchema = z.object({
   category: z.string(), // e.g., "Standard Room", "Deluxe Room"
   rate: z.number(), // Room rate
   numberOfRooms: z.union([z.number().min(1, "Number of rooms must be at least 1"), z.null()]).optional(), // Number of rooms
+  totalOccupancy: z.union([z.number().min(1, "Total occupancy must be at least 1"), z.null()]).optional(), // Total occupancy (default: defaultOccupancy * numberOfRooms)
+  defaultOccupancy: z.number().optional(), // Default occupancy per room from room type
+  maxOccupancy: z.number().optional(), // Max occupancy per room from room type
+  extraPersonRate: z.number().optional(), // Extra person rate from room type
 });
 
 // Main Quotation Schema

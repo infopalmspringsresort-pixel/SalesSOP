@@ -1088,11 +1088,6 @@ export default function Enquiries() {
             setShowPhoneLookup(false);
             setShowEnquiryForm(true);
           }}
-          onSkip={() => {
-            setPrefilledData(null);
-            setShowPhoneLookup(false);
-            setShowEnquiryForm(true);
-          }}
         />
 
         <EnquiryForm 

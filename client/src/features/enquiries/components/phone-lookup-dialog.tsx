@@ -5,16 +5,15 @@ import { Label } from "@/components/ui/label";
 import { PhoneInput } from "@/components/ui/phone-input";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { Phone, Search, X } from "lucide-react";
+import { Phone, Search } from "lucide-react";
 
 interface PhoneLookupDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onPhoneFound: (data: { clientName: string; email: string; city: string; contactNumber: string }) => void;
-  onSkip: () => void;
 }
 
-export default function PhoneLookupDialog({ open, onOpenChange, onPhoneFound, onSkip }: PhoneLookupDialogProps) {
+export default function PhoneLookupDialog({ open, onOpenChange, onPhoneFound }: PhoneLookupDialogProps) {
   const [contactNumber, setContactNumber] = useState("+91 ");
   const [isSearching, setIsSearching] = useState(false);
   const { toast } = useToast();
@@ -84,12 +83,6 @@ export default function PhoneLookupDialog({ open, onOpenChange, onPhoneFound, on
     }
   };
 
-  const handleSkip = () => {
-    onSkip();
-    onOpenChange(false);
-    setContactNumber("+91 ");
-  };
-
   const handleClose = () => {
     onOpenChange(false);
     setContactNumber("+91 ");
@@ -131,7 +124,7 @@ export default function PhoneLookupDialog({ open, onOpenChange, onPhoneFound, on
             <Button
               onClick={handleSearch}
               disabled={isSearching || !isValidPhone(contactNumber)}
-              className="flex-1"
+              className="w-full"
             >
               {isSearching ? (
                 <>
@@ -144,15 +137,6 @@ export default function PhoneLookupDialog({ open, onOpenChange, onPhoneFound, on
                   Search & Continue
                 </>
               )}
-            </Button>
-            <Button
-              variant="outline"
-              onClick={handleSkip}
-              disabled={isSearching}
-              className="flex-1"
-            >
-              <X className="w-4 h-4 mr-2" />
-              Skip
             </Button>
           </div>
         </div>

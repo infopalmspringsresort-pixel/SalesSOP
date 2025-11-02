@@ -747,15 +747,17 @@ export class MongoStorage implements IStorage {
     const enquiriesCollection = await getCollection<Enquiry>('enquiries');
     const usersCollection = await getCollection<User>('users');
     
+    // Get all incomplete follow-ups
     const followUps = await followUpCollection
-      .find({ completed: false })
+      .find({ completed: { $ne: true } }) // Use $ne instead of false to catch null/undefined
       .sort({ followUpDate: 1 })
       .toArray();
 
     const enrichedFollowUps = await Promise.all(
       followUps.map(async (followUp) => {
-        // Get enquiry details
+        // Get enquiry details - even if enquiry doesn't exist, still return the follow-up
         const enquiry = await enquiriesCollection.findOne({ _id: followUp.enquiryId });
+        
         // Get salesperson details
         let salesperson = null;
         if (enquiry?.salespersonId) {
@@ -770,14 +772,14 @@ export class MongoStorage implements IStorage {
 
         return {
           ...this.toApiFormat(followUp),
-          enquiryNumber: enquiry?.enquiryNumber,
-          clientName: enquiry?.clientName,
-          clientPhone: enquiry?.contactNumber,
-          clientEmail: enquiry?.email,
-          eventDate: enquiry?.eventDate,
-          status: enquiry?.status,
-          salespersonFirstName: salesperson?.firstName,
-          salespersonLastName: salesperson?.lastName,
+          enquiryNumber: enquiry?.enquiryNumber || 'N/A',
+          clientName: enquiry?.clientName || 'Unknown',
+          clientPhone: enquiry?.contactNumber || '',
+          clientEmail: enquiry?.email || '',
+          eventDate: enquiry?.eventDate || null,
+          status: enquiry?.status || 'unknown',
+          salespersonFirstName: salesperson?.firstName || null,
+          salespersonLastName: salesperson?.lastName || null,
         };
       })
     );

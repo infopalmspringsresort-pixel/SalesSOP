@@ -89,6 +89,8 @@ export default function Dashboard() {
       queryClient.invalidateQueries({ queryKey: ['/api/follow-ups'] });
       queryClient.invalidateQueries({ queryKey: ['/api/dashboard/metrics'] });
       queryClient.invalidateQueries({ queryKey: ['/api/enquiries'] });
+      // Force immediate refetch to update dashboard counts
+      queryClient.refetchQueries({ queryKey: ['/api/follow-ups'] });
       // Close dialog and refresh if needed
       setShowFollowUpDetails(false);
     }
@@ -110,7 +112,7 @@ export default function Dashboard() {
       queryClient.invalidateQueries({ queryKey: ['/api/follow-ups'] });
       queryClient.invalidateQueries({ queryKey: ['/api/dashboard/metrics'] });
       queryClient.invalidateQueries({ queryKey: ['/api/enquiries'] });
-      // Force refetch follow-ups data to update dashboard immediately
+      // Force immediate refetch to update dashboard counts
       queryClient.refetchQueries({ queryKey: ['/api/follow-ups'] });
       setShowRescheduleDialog(false);
       setSelectedFollowUpId(null);
@@ -198,6 +200,9 @@ export default function Dashboard() {
   const { data: followUps = [] } = useQuery<any[]>({
     queryKey: ["/api/follow-ups"],
     enabled: isAuthenticated,
+    refetchInterval: 60000, // Refetch every minute to catch overdue follow-ups
+    refetchOnWindowFocus: true, // Refetch when user returns to tab
+    refetchOnMount: true, // Always refetch when component mounts
   });
 
   // Recent enquiries for dashboard (last 5 enquiries)
@@ -212,6 +217,7 @@ export default function Dashboard() {
   
   // Categorize follow-ups using single logic to ensure no duplicates
   const categorizeFollowUp = (followUp: any) => {
+    // Skip if no date or already completed
     if (!followUp.followUpDate || followUp.completed) return 'completed';
     
     const followUpDate = new Date(followUp.followUpDate);
@@ -227,11 +233,15 @@ export default function Dashboard() {
     if (followUpDateOnly.getTime() === todayDate.getTime()) {
       // It's today - check if time has passed
       if (followUp.followUpTime) {
-        const [hours, minutes] = followUp.followUpTime.split(':').map(Number);
-        const followUpDateTime = new Date(todayIST);
-        followUpDateTime.setHours(hours, minutes, 0, 0);
-        
-        if (followUpDateTime.getTime() < todayIST.getTime()) {
+        // Use the helper function for accurate IST time comparison
+        if (isFollowUpOverdue(followUp.followUpDate, followUp.followUpTime)) {
+          return 'overdue';
+        }
+      } else {
+        // If no time specified for today's follow-up, check if current time is past a reasonable default (end of day)
+        // If it's already past a certain hour (e.g., 6 PM), consider it overdue
+        const currentHour = todayIST.getHours();
+        if (currentHour >= 18) { // 6 PM or later
           return 'overdue';
         }
       }

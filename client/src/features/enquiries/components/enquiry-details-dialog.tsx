@@ -503,6 +503,8 @@ export default function EnquiryDetailsDialog({ enquiry: initialEnquiry, open, on
       queryClient.invalidateQueries({ queryKey: ["/api/enquiries"] });
       queryClient.invalidateQueries({ queryKey: ["/api/follow-ups"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/metrics"] });
+      // Force immediate refetch to update dashboard counts
+      queryClient.refetchQueries({ queryKey: ["/api/follow-ups"] });
       toast({
         title: "Success",
         description: "All follow-ups marked as completed",

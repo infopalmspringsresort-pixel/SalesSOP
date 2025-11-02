@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useForm, useFieldArray, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -52,6 +52,12 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
     menuGST: number;
     totalGST: number;
     baseTotal: number;
+    venueDiscount?: number;
+    roomDiscount?: number;
+    menuDiscount?: number;
+    venueBaseAfterDiscount?: number;
+    roomBaseAfterDiscount?: number;
+    menuBaseAfterDiscount?: number;
   } | null>(null);
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -137,12 +143,49 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
   };
 
 
+  // Helper function to convert date to DD/MM/YYYY format
+  const convertToDDMMYYYY = (dateString: string | undefined | null): string => {
+    if (!dateString) return "";
+    
+    // If already in DD/MM/YYYY format (has slashes), return as-is
+    if (dateString.includes('/') && dateString.split('/').length === 3) {
+      return dateString;
+    }
+    
+    // If in DD MM YYYY format (with spaces), convert to slashes
+    if (dateString.includes(' ') && dateString.split(' ').length === 3) {
+      return dateString.replace(/\s+/g, '/');
+    }
+    
+    // Try to parse as ISO date (YYYY-MM-DD) or other standard formats
+    try {
+      const date = new Date(dateString);
+      if (!isNaN(date.getTime())) {
+        const day = String(date.getDate()).padStart(2, '0');
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const year = date.getFullYear();
+        return `${day}/${month}/${year}`;
+      }
+    } catch {
+      // If parsing fails, return as-is
+    }
+    
+    return dateString;
+  };
+
   // Reset form when editingQuotation changes
   useEffect(() => {
     if (editingQuotation) {
-      form.reset({
+      // Convert venue rental item dates to DD MM YYYY format
+      const convertedQuotation = {
         ...editingQuotation,
-      });
+        venueRentalItems: editingQuotation.venueRentalItems?.map(item => ({
+          ...item,
+          eventDate: convertToDDMMYYYY(item.eventDate),
+        })) || [],
+      };
+      
+      form.reset(convertedQuotation);
     } else {
       // Start with empty form - details will show only when items are selected
       form.reset({
@@ -189,28 +232,69 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
   const venueRentalItems = useWatch({ control: form.control, name: 'venueRentalItems' });
   const roomPackages = useWatch({ control: form.control, name: 'roomPackages' });
   const includeGST = useWatch({ control: form.control, name: 'includeGST' });
+  const discountValue = useWatch({ control: form.control, name: 'discountValue' }) || 0;
+  const discountType = useWatch({ control: form.control, name: 'discountType' });
+  
+  // Calculate base total (before discount and GST) for discount section
+  const baseTotalBeforeDiscount = useMemo(() => {
+    const venueBase = venueRentalItems?.reduce((sum, item) => {
+      return sum + (item.sessionRate || 0);
+    }, 0) || 0;
+    
+    const roomBase = roomPackages?.reduce((sum, item) => {
+      const rate = item.rate || 0;
+      const numberOfRooms = item.numberOfRooms || 1;
+      const baseRoomAmount = rate * numberOfRooms;
+      
+      // Calculate extra person charges
+      const defaultOccupancy = item.defaultOccupancy || 2; // Default to 2 if not set
+      const totalOccupancy = item.totalOccupancy || (defaultOccupancy * numberOfRooms);
+      const defaultTotalOccupancy = defaultOccupancy * numberOfRooms;
+      const extraPersons = Math.max(0, totalOccupancy - defaultTotalOccupancy);
+      const extraPersonRate = item.extraPersonRate || 0;
+      const extraPersonCharges = extraPersons * extraPersonRate;
+      
+      return sum + baseRoomAmount + extraPersonCharges;
+    }, 0) || 0;
+    
+    const menuBase = selectedMenuPackages.reduce((sum, packageId) => {
+      const selectedPackage = menuPackages.find(pkg => pkg.id === packageId);
+      if (selectedPackage) {
+        const customData = customMenuItems[packageId];
+        const packagePrice = selectedPackage.price;
+        const additionalItemsTotal = customData?.selectedItems?.reduce((itemSum: number, item: any) => {
+          return itemSum + (!item.isPackageItem ? (item.additionalPrice || 0) : 0);
+        }, 0) || 0;
+        return sum + packagePrice + additionalItemsTotal;
+      }
+      return sum;
+    }, 0);
+    
+    return venueBase + roomBase + menuBase;
+  }, [venueRentalItems, roomPackages, selectedMenuPackages, menuPackages, customMenuItems]);
   
   useEffect(() => {
-    // Calculate venue total with GST
+    // Step 1: Calculate base totals (before discount and GST)
     const venueBaseTotal = venueRentalItems?.reduce((sum, item) => {
       return sum + (item.sessionRate || 0);
     }, 0) || 0;
-    const venueGST = calculateGST(venueBaseTotal, 'venue');
-    const venueTotal = venueBaseTotal + venueGST;
     
-    // Calculate room total with GST
     const roomBaseTotal = roomPackages?.reduce((sum, item) => {
       const rate = item.rate || 0;
       const numberOfRooms = item.numberOfRooms || 1;
-      return sum + (rate * numberOfRooms);
+      const baseRoomAmount = rate * numberOfRooms;
+      
+      // Calculate extra person charges
+      const defaultOccupancy = item.defaultOccupancy || 2; // Default to 2 if not set
+      const totalOccupancy = item.totalOccupancy || (defaultOccupancy * numberOfRooms);
+      const defaultTotalOccupancy = defaultOccupancy * numberOfRooms;
+      const extraPersons = Math.max(0, totalOccupancy - defaultTotalOccupancy);
+      const extraPersonRate = item.extraPersonRate || 0;
+      const extraPersonCharges = extraPersons * extraPersonRate;
+      
+      return sum + baseRoomAmount + extraPersonCharges;
     }, 0) || 0;
-    const roomGST = roomPackages?.reduce((sum, item) => {
-      const rate = item.rate || 0;
-      const numberOfRooms = item.numberOfRooms || 1;
-      const itemTotal = rate * numberOfRooms;
-      return sum + calculateGST(itemTotal, 'room', rate);
-    }, 0) || 0;
-    const roomQuotationTotal = roomBaseTotal + roomGST;
+    
     // Calculate menu total from selected packages including additional items
     const menuBaseTotal = selectedMenuPackages.reduce((sum, packageId) => {
       const selectedPackage = menuPackages.find(pkg => pkg.id === packageId);
@@ -232,16 +316,76 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
       }
       return sum;
     }, 0);
-    const menuGST = calculateGST(menuBaseTotal, 'menu');
-    const menuTotal = menuBaseTotal + menuGST;
-    const banquetTotal = venueTotal; // Use venue total for banquet total
-    const roomTotal = roomQuotationTotal; // Same as room quotation total
-    const grandTotal = venueTotal + roomQuotationTotal + menuTotal; // Don't double-count venue total
+    
+    const totalBaseAmount = venueBaseTotal + roomBaseTotal + menuBaseTotal;
+    
+    // Step 2: Calculate discount for each category separately (before GST)
+    let venueDiscountAmount = 0;
+    let roomDiscountAmount = 0;
+    let menuDiscountAmount = 0;
+    let totalDiscountAmount = 0;
+    
+    if (discountValue > 0 && discountType === 'percentage' && totalBaseAmount > 0) {
+      // Calculate discount on each category individually
+      venueDiscountAmount = (venueBaseTotal * discountValue) / 100;
+      roomDiscountAmount = (roomBaseTotal * discountValue) / 100;
+      menuDiscountAmount = (menuBaseTotal * discountValue) / 100;
+      totalDiscountAmount = venueDiscountAmount + roomDiscountAmount + menuDiscountAmount;
+    } else if (discountValue > 0 && discountType === 'fixed') {
+      // For fixed discount, apply proportionally to each category
+      const discountRatio = totalBaseAmount > 0 ? Math.min(discountValue, totalBaseAmount) / totalBaseAmount : 0;
+      venueDiscountAmount = venueBaseTotal * discountRatio;
+      roomDiscountAmount = roomBaseTotal * discountRatio;
+      menuDiscountAmount = menuBaseTotal * discountRatio;
+      totalDiscountAmount = venueDiscountAmount + roomDiscountAmount + menuDiscountAmount;
+    }
+    
+    // Apply discount to each category
+    const venueBaseAfterDiscount = venueBaseTotal - venueDiscountAmount;
+    const roomBaseAfterDiscount = roomBaseTotal - roomDiscountAmount;
+    const menuBaseAfterDiscount = menuBaseTotal - menuDiscountAmount;
+    
+    // Step 3: Calculate GST on discounted amounts
+    const venueGST = includeGST ? calculateGST(venueBaseAfterDiscount, 'venue') : 0;
+    const venueTotal = venueBaseAfterDiscount + venueGST;
+    
+    // Calculate room GST item by item (as each room can have different GST rates)
+    // Apply discount proportionally to each room item
+    const roomDiscountRatio = roomBaseTotal > 0 ? roomDiscountAmount / roomBaseTotal : 0;
+    const roomGST = includeGST ? roomPackages?.reduce((sum, item) => {
+      const rate = item.rate || 0;
+      const numberOfRooms = item.numberOfRooms || 1;
+      const baseRoomAmount = rate * numberOfRooms;
+      
+      // Calculate extra person charges
+      const defaultOccupancy = item.defaultOccupancy || 2;
+      const totalOccupancy = item.totalOccupancy || (defaultOccupancy * numberOfRooms);
+      const defaultTotalOccupancy = defaultOccupancy * numberOfRooms;
+      const extraPersons = Math.max(0, totalOccupancy - defaultTotalOccupancy);
+      const extraPersonRate = item.extraPersonRate || 0;
+      const extraPersonCharges = extraPersons * extraPersonRate;
+      
+      const itemBaseTotal = baseRoomAmount + extraPersonCharges;
+      // Apply discount proportionally to this item
+      const itemDiscount = itemBaseTotal * roomDiscountRatio;
+      const itemBaseAfterDiscount = itemBaseTotal - itemDiscount;
+      return sum + calculateGST(itemBaseAfterDiscount, 'room', rate);
+    }, 0) || 0 : 0;
+    const roomQuotationTotal = roomBaseAfterDiscount + roomGST;
+    
+    const menuGST = includeGST ? calculateGST(menuBaseAfterDiscount, 'menu') : 0;
+    const menuTotal = menuBaseAfterDiscount + menuGST;
+    
+    // Step 4: Calculate final totals
+    const banquetTotal = venueTotal;
+    const roomTotal = roomQuotationTotal;
+    const grandTotal = venueTotal + roomQuotationTotal + menuTotal;
     
     // Store individual GST amounts for display
     const totalGST = venueGST + roomGST + menuGST;
-    const baseTotal = venueBaseTotal + roomBaseTotal + menuBaseTotal;
+    const baseTotalAfterDiscount = venueBaseAfterDiscount + roomBaseAfterDiscount + menuBaseAfterDiscount;
     
+    // Update form values
     form.setValue('venueRentalTotal', venueTotal, { shouldValidate: false, shouldDirty: false });
     form.setValue('roomQuotationTotal', roomQuotationTotal, { shouldValidate: false, shouldDirty: false });
     form.setValue('roomTotal', roomTotal, { shouldValidate: false, shouldDirty: false });
@@ -249,15 +393,30 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
     form.setValue('banquetTotal', banquetTotal, { shouldValidate: false, shouldDirty: false });
     form.setValue('grandTotal', grandTotal, { shouldValidate: false, shouldDirty: false });
     
-    // Store GST breakdown for display
+    // Update discount amount if it changed
+    const currentDiscountAmount = form.getValues('discountAmount') || 0;
+    if (Math.abs(currentDiscountAmount - totalDiscountAmount) > 0.01) {
+      form.setValue('discountAmount', totalDiscountAmount, { shouldValidate: false, shouldDirty: false });
+    }
+    
+    // Update final total (same as grand total since discount is already applied to base)
+    form.setValue('finalTotal', grandTotal, { shouldValidate: false, shouldDirty: false });
+    
+    // Store GST and discount breakdown for display
     setGstBreakdown(includeGST ? {
       venueGST,
       roomGST,
       menuGST,
       totalGST,
-      baseTotal,
+      baseTotal: baseTotalAfterDiscount, // This is the base total after discount
+      venueDiscount: venueDiscountAmount,
+      roomDiscount: roomDiscountAmount,
+      menuDiscount: menuDiscountAmount,
+      venueBaseAfterDiscount,
+      roomBaseAfterDiscount,
+      menuBaseAfterDiscount,
     } : null);
-  }, [venueRentalItems, roomPackages, includeGST, selectedMenuPackages, menuPackages, customMenuItems, form]);
+  }, [venueRentalItems, roomPackages, includeGST, selectedMenuPackages, menuPackages, customMenuItems, discountValue, discountType, form]);
 
   const createQuotationMutation = useMutation({
     mutationFn: async (data: z.infer<typeof formSchema>) => {
@@ -346,44 +505,16 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
       
       console.log('🔍 menuPackagesData:', menuPackagesData);
 
-      // Recalculate totals to ensure they're correct
-      const venueTotal = data.venueRentalItems?.reduce((sum, item) => {
-        return sum + (item.sessionRate || 0);
-      }, 0) || 0;
-      
-      const roomQuotationTotal = data.roomPackages?.reduce((sum, item) => {
-        const rate = item.rate || 0;
-        const numberOfRooms = item.numberOfRooms || 1;
-        return sum + (rate * numberOfRooms);
-      }, 0) || 0;
-      
-      const menuTotal = menuPackagesData.reduce((sum, pkg) => {
-        // Calculate selected package items price (using actual item prices)
-        const selectedPackageItemsPrice = pkg.selectedItems?.reduce((itemSum: number, item: any) => {
-          return itemSum + (item.isPackageItem ? (item.price || 0) : 0);
-        }, 0) || pkg.price;
-        
-        // Calculate additional prices from selected items (additional items only, not package items)
-        const additionalItemsTotal = pkg.selectedItems?.reduce((itemSum: number, item: any) => {
-          // Only add price for additional items (not package items)
-          return itemSum + (!item.isPackageItem ? (item.additionalPrice || 0) : 0);
-        }, 0) || 0;
-        
-        // Selected items price + additional items (without GST - GST will be added later in final quote)
-        const totalPrice = selectedPackageItemsPrice + additionalItemsTotal;
-        return sum + totalPrice;
-      }, 0);
-      
-      const grandTotal = venueTotal + roomQuotationTotal + menuTotal;
-
+      // Use totals already calculated by useEffect (which includes discount and GST)
       const formData = {
         ...data,
         menuPackages: menuPackagesData,
-        venueRentalTotal: venueTotal,
-        roomQuotationTotal: roomQuotationTotal,
-        roomTotal: roomQuotationTotal,
-        menuTotal: menuTotal,
-        grandTotal: grandTotal,
+        venueRentalTotal: data.venueRentalTotal || 0,
+        roomQuotationTotal: data.roomQuotationTotal || 0,
+        roomTotal: data.roomTotal || 0,
+        menuTotal: data.menuTotal || 0,
+        grandTotal: data.grandTotal || 0,
+        finalTotal: data.finalTotal || data.grandTotal || 0,
         createdBy: (user as any)?.id || (user as any)?._id || '',
       };
       
@@ -410,8 +541,30 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
   };
 
   const addVenueItem = () => {
+    // Get event date and convert to DD/MM/YYYY format if it exists
+    const formEventDate = form.getValues('eventDate');
+    let defaultDate = "";
+    if (formEventDate) {
+      try {
+        const date = new Date(formEventDate);
+        const day = String(date.getDate()).padStart(2, '0');
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const year = date.getFullYear();
+        defaultDate = `${day}/${month}/${year}`;
+      } catch {
+        defaultDate = formEventDate; // Use as-is if parsing fails
+      }
+    } else {
+      // Default to today in DD/MM/YYYY format
+      const today = new Date();
+      const day = String(today.getDate()).padStart(2, '0');
+      const month = String(today.getMonth() + 1).padStart(2, '0');
+      const year = today.getFullYear();
+      defaultDate = `${day}/${month}/${year}`;
+    }
+    
     appendVenue({
-      eventDate: form.getValues('eventDate') || new Date().toISOString().split('T')[0],
+      eventDate: defaultDate,
       venue: "",
       venueSpace: "",
       session: "All",
@@ -424,6 +577,10 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
       category: "",
       rate: 0,
       numberOfRooms: null,
+      totalOccupancy: null,
+      defaultOccupancy: undefined,
+      maxOccupancy: undefined,
+      extraPersonRate: undefined,
     });
   };
 
@@ -777,7 +934,132 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
                               <Trash2 className="w-4 h-4" />
                             </Button>
                           </div>
-                          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                            <FormField
+                              control={form.control}
+                              name={`venueRentalItems.${index}.eventDate`}
+                              render={({ field }) => {
+                                // Helper function to format date with slashes
+                                const formatDateWithSlashes = (value: string): string => {
+                                  // Remove all non-digit characters
+                                  const digits = value.replace(/\D/g, '');
+                                  
+                                  // Limit to 8 digits (DDMMYYYY)
+                                  const limited = digits.slice(0, 8);
+                                  
+                                  // Insert slashes at appropriate positions
+                                  let formatted = '';
+                                  for (let i = 0; i < limited.length; i++) {
+                                    if (i === 2 || i === 4) {
+                                      formatted += '/';
+                                    }
+                                    formatted += limited[i];
+                                  }
+                                  
+                                  return formatted;
+                                };
+
+                                // Helper function to handle input changes
+                                const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+                                  const input = e.target.value;
+                                  
+                                  // Format the new value (removes non-digits and adds slashes)
+                                  const formatted = formatDateWithSlashes(input);
+                                  
+                                  // Calculate cursor position based on digit count
+                                  const digitsBefore = input.slice(0, e.target.selectionStart || 0).replace(/\D/g, '').length;
+                                  
+                                  // Position cursor: after digits + slashes that should appear before cursor
+                                  let newCursorPosition = digitsBefore;
+                                  if (digitsBefore > 2) newCursorPosition++; // After first slash
+                                  if (digitsBefore > 4) newCursorPosition++; // After second slash
+                                  
+                                  // Ensure cursor doesn't exceed formatted length
+                                  newCursorPosition = Math.min(newCursorPosition, formatted.length);
+                                  
+                                  field.onChange(formatted);
+                                  
+                                  // Set cursor position after state update
+                                  setTimeout(() => {
+                                    e.target.setSelectionRange(newCursorPosition, newCursorPosition);
+                                  }, 0);
+                                };
+
+                                // Handle key down to prevent deleting/editing slashes
+                                const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+                                  const input = e.currentTarget;
+                                  const cursorPosition = input.selectionStart || 0;
+                                  const value = field.value || '';
+                                  
+                                  // Prevent typing if cursor is at a slash position
+                                  if (e.key.length === 1 && !/\d/.test(e.key)) {
+                                    // Non-digit character typed - prevent if at slash position
+                                    if (value[cursorPosition] === '/') {
+                                      e.preventDefault();
+                                      // Move cursor forward past the slash
+                                      setTimeout(() => {
+                                        input.setSelectionRange(cursorPosition + 1, cursorPosition + 1);
+                                      }, 0);
+                                      return;
+                                    }
+                                  }
+                                  
+                                  // Handle backspace - skip slashes
+                                  if (e.key === 'Backspace') {
+                                    if (cursorPosition > 0 && value[cursorPosition - 1] === '/') {
+                                      e.preventDefault();
+                                      // Delete the digit before the slash
+                                      const digits = value.replace(/\D/g, '');
+                                      const digitPos = value.slice(0, cursorPosition - 1).replace(/\D/g, '').length;
+                                      if (digitPos > 0) {
+                                        const newDigits = digits.slice(0, digitPos - 1) + digits.slice(digitPos);
+                                        const formatted = formatDateWithSlashes(newDigits);
+                                        field.onChange(formatted);
+                                        setTimeout(() => {
+                                          const newPos = cursorPosition - 1;
+                                          input.setSelectionRange(Math.max(0, newPos), Math.max(0, newPos));
+                                        }, 0);
+                                      }
+                                    }
+                                  }
+                                  
+                                  // Handle delete - skip slashes
+                                  if (e.key === 'Delete') {
+                                    if (value[cursorPosition] === '/') {
+                                      e.preventDefault();
+                                      // Delete the digit after the slash
+                                      const digits = value.replace(/\D/g, '');
+                                      const digitPos = value.slice(0, cursorPosition).replace(/\D/g, '').length;
+                                      if (digitPos < digits.length) {
+                                        const newDigits = digits.slice(0, digitPos) + digits.slice(digitPos + 1);
+                                        const formatted = formatDateWithSlashes(newDigits);
+                                        field.onChange(formatted);
+                                        setTimeout(() => {
+                                          input.setSelectionRange(cursorPosition, cursorPosition);
+                                        }, 0);
+                                      }
+                                    }
+                                  }
+                                };
+
+                                return (
+                                  <FormItem>
+                                    <FormLabel>Date *</FormLabel>
+                                    <FormControl>
+                                      <Input 
+                                        type="text"
+                                        placeholder="DD/MM/YYYY"
+                                        maxLength={10}
+                                        value={field.value || ""}
+                                        onChange={handleDateChange}
+                                        onKeyDown={handleKeyDown}
+                                      />
+                                    </FormControl>
+                                    <FormMessage />
+                                  </FormItem>
+                                );
+                              }}
+                            />
                             <FormField
                               control={form.control}
                               name={`venueRentalItems.${index}.venue`}
@@ -955,7 +1237,7 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
                               <Trash2 className="w-4 h-4" />
                             </Button>
                           </div>
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                             <FormField
                               control={form.control}
                               name={`roomPackages.${index}.category`}
@@ -965,10 +1247,20 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
                                   <Select 
                                     onValueChange={(value) => {
                                       field.onChange(value);
-                                      // Auto-fill room rate when category is selected
+                                      // Auto-fill room rate and occupancy data when category is selected
                                       const selectedRoom = roomTypes.find(rt => rt.name === value);
                                       if (selectedRoom) {
+                                        const defaultOccupancy = selectedRoom.defaultOccupancy || 2;
+                                        const maxOccupancy = selectedRoom.maxOccupancy || 2;
+                                        const extraPersonRate = selectedRoom.extraPersonRate || 0;
+                                        const numberOfRooms = form.getValues(`roomPackages.${index}.numberOfRooms`) || 1;
+                                        const totalOccupancy = defaultOccupancy * numberOfRooms;
+                                        
                                         form.setValue(`roomPackages.${index}.rate`, selectedRoom.baseRate || 0, { shouldValidate: false, shouldDirty: false });
+                                        form.setValue(`roomPackages.${index}.defaultOccupancy`, defaultOccupancy, { shouldValidate: false, shouldDirty: false });
+                                        form.setValue(`roomPackages.${index}.maxOccupancy`, maxOccupancy, { shouldValidate: false, shouldDirty: false });
+                                        form.setValue(`roomPackages.${index}.extraPersonRate`, extraPersonRate, { shouldValidate: false, shouldDirty: false });
+                                        form.setValue(`roomPackages.${index}.totalOccupancy`, totalOccupancy, { shouldValidate: false, shouldDirty: false });
                                       }
                                     }} 
                                     value={field.value}
@@ -1034,6 +1326,25 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
                                         } else {
                                           const numValue = Number(value);
                                           field.onChange(isNaN(numValue) ? null : numValue);
+                                          
+                                          // Update totalOccupancy when numberOfRooms changes
+                                          const defaultOccupancy = form.getValues(`roomPackages.${index}.defaultOccupancy`) || 2;
+                                          const maxOccupancy = form.getValues(`roomPackages.${index}.maxOccupancy`) || 2;
+                                          const currentTotalOccupancy = form.getValues(`roomPackages.${index}.totalOccupancy`);
+                                          
+                                          if (!isNaN(numValue) && numValue > 0) {
+                                            const newDefaultTotal = defaultOccupancy * numValue;
+                                            // If current occupancy is not set or is based on old room count, update it
+                                            if (!currentTotalOccupancy || currentTotalOccupancy < newDefaultTotal) {
+                                              form.setValue(`roomPackages.${index}.totalOccupancy`, newDefaultTotal, { shouldValidate: false, shouldDirty: false });
+                                            } else {
+                                              // Ensure totalOccupancy doesn't exceed maxOccupancy * numberOfRooms
+                                              const maxTotalOccupancy = maxOccupancy * numValue;
+                                              if (currentTotalOccupancy > maxTotalOccupancy) {
+                                                form.setValue(`roomPackages.${index}.totalOccupancy`, maxTotalOccupancy, { shouldValidate: false, shouldDirty: false });
+                                              }
+                                            }
+                                          }
                                         }
                                       }}
                                     />
@@ -1042,7 +1353,114 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
                                 </FormItem>
                               )}
                             />
+                            <FormField
+                              control={form.control}
+                              name={`roomPackages.${index}.totalOccupancy`}
+                              render={({ field }) => {
+                                const numberOfRooms = form.watch(`roomPackages.${index}.numberOfRooms`) || 1;
+                                const maxOccupancy = form.watch(`roomPackages.${index}.maxOccupancy`) || 2;
+                                const defaultOccupancy = form.watch(`roomPackages.${index}.defaultOccupancy`) || 2;
+                                const maxTotalOccupancy = maxOccupancy * numberOfRooms;
+                                const defaultTotalOccupancy = defaultOccupancy * numberOfRooms;
+                                
+                                return (
+                                  <FormItem className="flex flex-col">
+                                    <FormLabel className="mb-2">Total Occupancy *</FormLabel>
+                                    <FormControl>
+                                      <Input 
+                                        type="number" 
+                                        min={numberOfRooms}
+                                        max={maxTotalOccupancy}
+                                        className="h-10"
+                                        value={field.value?.toString() || ""}
+                                        onChange={(e) => {
+                                          const value = e.target.value;
+                                          // Allow empty string or any number while typing
+                                          if (value === "") {
+                                            field.onChange(null);
+                                          } else {
+                                            const numValue = Number(value);
+                                            if (!isNaN(numValue)) {
+                                              field.onChange(numValue);
+                                            }
+                                          }
+                                        }}
+                                        onBlur={(e) => {
+                                          // Validate and clamp value on blur
+                                          const value = e.target.value.trim();
+                                          if (value === "") {
+                                            // If empty, set to default
+                                            field.onChange(defaultTotalOccupancy);
+                                            form.setValue(`roomPackages.${index}.totalOccupancy`, defaultTotalOccupancy, { shouldValidate: false, shouldDirty: false });
+                                          } else {
+                                            const numValue = Number(value);
+                                            if (!isNaN(numValue)) {
+                                              // Clamp to valid range
+                                              if (numValue < numberOfRooms) {
+                                                field.onChange(numberOfRooms);
+                                                form.setValue(`roomPackages.${index}.totalOccupancy`, numberOfRooms, { shouldValidate: false, shouldDirty: false });
+                                              } else if (numValue > maxTotalOccupancy) {
+                                                field.onChange(maxTotalOccupancy);
+                                                form.setValue(`roomPackages.${index}.totalOccupancy`, maxTotalOccupancy, { shouldValidate: false, shouldDirty: false });
+                                              } else {
+                                                field.onChange(numValue);
+                                              }
+                                            }
+                                          }
+                                        }}
+                                        placeholder={`Default: ${defaultTotalOccupancy}`}
+                                      />
+                                    </FormControl>
+                                    <FormMessage />
+                                    {defaultOccupancy && maxOccupancy && (
+                                      <p className="text-xs text-muted-foreground">
+                                        Default: {defaultTotalOccupancy} (Range: {numberOfRooms} - {maxTotalOccupancy})
+                                      </p>
+                                    )}
+                                  </FormItem>
+                                );
+                              }}
+                            />
                           </div>
+                          {/* Display extra person charges breakdown if applicable */}
+                          {(() => {
+                            const room = form.watch(`roomPackages.${index}`);
+                            if (!room || !room.category || !room.numberOfRooms || !room.totalOccupancy) return null;
+                            
+                            const defaultOccupancy = room.defaultOccupancy || 2;
+                            const numberOfRooms = room.numberOfRooms || 1;
+                            const totalOccupancy = room.totalOccupancy || (defaultOccupancy * numberOfRooms);
+                            const defaultTotalOccupancy = defaultOccupancy * numberOfRooms;
+                            const extraPersons = Math.max(0, totalOccupancy - defaultTotalOccupancy);
+                            const extraPersonRate = room.extraPersonRate || 0;
+                            const extraPersonCharges = extraPersons * extraPersonRate;
+                            
+                            if (extraPersons > 0 && extraPersonRate > 0) {
+                              return (
+                                <div className="mt-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                                  <div className="text-sm space-y-1">
+                                    <div className="flex justify-between">
+                                      <span className="text-blue-700">Base Occupancy:</span>
+                                      <span className="font-medium text-blue-800">{defaultTotalOccupancy} persons</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                      <span className="text-blue-700">Total Occupancy:</span>
+                                      <span className="font-medium text-blue-800">{totalOccupancy} persons</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                      <span className="text-blue-700">Extra Persons:</span>
+                                      <span className="font-medium text-blue-800">{extraPersons} persons</span>
+                                    </div>
+                                    <div className="flex justify-between border-t border-blue-300 pt-1 mt-1">
+                                      <span className="font-semibold text-blue-900">Extra Person Charges:</span>
+                                      <span className="font-bold text-blue-900">₹{extraPersonCharges.toLocaleString()}</span>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            }
+                            return null;
+                          })()}
                         </CardContent>
                       </Card>
                     ))}
@@ -1084,36 +1502,66 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
                     <span className="text-muted-foreground">Venue Rental:</span>
                     <span className="font-medium">₹{form.watch('venueRentalTotal')?.toLocaleString() || '0'}</span>
                   </div>
-                  {includeGST && gstBreakdown && (
-                    <div className="flex justify-between text-xs text-muted-foreground pl-4">
-                      <span>Base: ₹{((form.watch('venueRentalTotal') || 0) - gstBreakdown.venueGST).toLocaleString()}</span>
-                      <span>GST (18%): ₹{gstBreakdown.venueGST.toLocaleString()}</span>
+                  {(discountValue > 0 || (includeGST && gstBreakdown)) && (
+                    <div className="text-xs text-muted-foreground pl-4 space-y-1">
+                      {discountValue > 0 && gstBreakdown?.venueDiscount !== undefined && (
+                        <div className="flex justify-between">
+                          <span>Base: ₹{((gstBreakdown.venueBaseAfterDiscount || 0) + (gstBreakdown.venueDiscount || 0)).toLocaleString()}</span>
+                          <span className="text-red-600">Discount: -₹{(gstBreakdown.venueDiscount || 0).toLocaleString()}</span>
+                        </div>
+                      )}
+                      {gstBreakdown && (
+                        <div className="flex justify-between">
+                          <span>Base (after discount): ₹{(gstBreakdown.venueBaseAfterDiscount || ((form.watch('venueRentalTotal') || 0) - gstBreakdown.venueGST)).toLocaleString()}</span>
+                          <span>GST (18%): ₹{gstBreakdown.venueGST.toLocaleString()}</span>
+                        </div>
+                      )}
                     </div>
                   )}
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Room Quotation:</span>
                     <span className="font-medium">₹{form.watch('roomQuotationTotal')?.toLocaleString() || '0'}</span>
                   </div>
-                  {includeGST && gstBreakdown && (
-                    <div className="flex justify-between text-xs text-muted-foreground pl-4">
-                      <span>Base: ₹{((form.watch('roomQuotationTotal') || 0) - gstBreakdown.roomGST).toLocaleString()}</span>
-                      <span>GST: ₹{gstBreakdown.roomGST.toLocaleString()}</span>
+                  {(discountValue > 0 || (includeGST && gstBreakdown)) && (
+                    <div className="text-xs text-muted-foreground pl-4 space-y-1">
+                      {discountValue > 0 && gstBreakdown?.roomDiscount !== undefined && (
+                        <div className="flex justify-between">
+                          <span>Base: ₹{((gstBreakdown.roomBaseAfterDiscount || 0) + (gstBreakdown.roomDiscount || 0)).toLocaleString()}</span>
+                          <span className="text-red-600">Discount: -₹{(gstBreakdown.roomDiscount || 0).toLocaleString()}</span>
+                        </div>
+                      )}
+                      {gstBreakdown && (
+                        <div className="flex justify-between">
+                          <span>Base (after discount): ₹{(gstBreakdown.roomBaseAfterDiscount || ((form.watch('roomQuotationTotal') || 0) - gstBreakdown.roomGST)).toLocaleString()}</span>
+                          <span>GST: ₹{gstBreakdown.roomGST.toLocaleString()}</span>
+                        </div>
+                      )}
                     </div>
                   )}
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Menu Total:</span>
                     <span className="font-medium">₹{form.watch('menuTotal')?.toLocaleString() || '0'}</span>
                   </div>
-                  {includeGST && gstBreakdown && (
-                    <div className="flex justify-between text-xs text-muted-foreground pl-4">
-                      <span>Base: ₹{((form.watch('menuTotal') || 0) - gstBreakdown.menuGST).toLocaleString()}</span>
-                      <span>GST (18%): ₹{gstBreakdown.menuGST.toLocaleString()}</span>
+                  {(discountValue > 0 || (includeGST && gstBreakdown)) && (
+                    <div className="text-xs text-muted-foreground pl-4 space-y-1">
+                      {discountValue > 0 && gstBreakdown?.menuDiscount !== undefined && (
+                        <div className="flex justify-between">
+                          <span>Base: ₹{((gstBreakdown.menuBaseAfterDiscount || 0) + (gstBreakdown.menuDiscount || 0)).toLocaleString()}</span>
+                          <span className="text-red-600">Discount: -₹{(gstBreakdown.menuDiscount || 0).toLocaleString()}</span>
+                        </div>
+                      )}
+                      {gstBreakdown && (
+                        <div className="flex justify-between">
+                          <span>Base (after discount): ₹{(gstBreakdown.menuBaseAfterDiscount || ((form.watch('menuTotal') || 0) - gstBreakdown.menuGST)).toLocaleString()}</span>
+                          <span>GST (18%): ₹{gstBreakdown.menuGST.toLocaleString()}</span>
+                        </div>
+                      )}
                     </div>
                   )}
                   {includeGST && gstBreakdown && (
                     <div className="border-t pt-2 mt-2">
                       <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">Subtotal (Before GST):</span>
+                        <span className="text-muted-foreground">Subtotal (After Discount, Before GST):</span>
                         <span className="font-medium">₹{gstBreakdown.baseTotal.toLocaleString()}</span>
                       </div>
                       <div className="flex justify-between text-sm">
@@ -1122,17 +1570,27 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
                       </div>
                     </div>
                   )}
+                  {discountValue > 0 && (
+                    <div className="border-t pt-2 mt-2">
+                      <div className="flex justify-between text-sm text-muted-foreground">
+                        <span>Subtotal (Before Discount):</span>
+                        <span>₹{baseTotalBeforeDiscount.toLocaleString()}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span>Discount ({discountValue}%):</span>
+                        <span className="text-red-600">-₹{(form.watch('discountAmount') || 0).toLocaleString()}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span>Subtotal (After Discount):</span>
+                        <span>₹{(baseTotalBeforeDiscount - (form.watch('discountAmount') || 0)).toLocaleString()}</span>
+                      </div>
+                    </div>
+                  )}
                   <div className="border-t pt-3">
                     <div className="flex justify-between text-lg font-semibold">
                       <span>Grand Total:</span>
                       <span className="text-blue-600">₹{form.watch('grandTotal')?.toLocaleString() || '0'}</span>
                     </div>
-                    {form.watch('finalTotal') && form.watch('finalTotal') !== form.watch('grandTotal') && (
-                      <div className="flex justify-between text-xl font-bold text-green-600 mt-2">
-                        <span>Final Total (After Discount):</span>
-                        <span>₹{form.watch('finalTotal')?.toLocaleString()}</span>
-                      </div>
-                    )}
                   </div>
                 </div>
               </CardContent>
@@ -1178,14 +1636,14 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
 
             {/* Discount Section */}
             <DiscountSection 
-              grandTotal={form.watch('grandTotal') || 0}
+              grandTotal={baseTotalBeforeDiscount}
               onDiscountApplied={(discountData) => {
                 form.setValue('discountType', discountData.discountType);
                 form.setValue('discountValue', discountData.discountValue);
                 form.setValue('discountAmount', discountData.discountAmount);
                 form.setValue('discountReason', discountData.discountReason);
                 form.setValue('discountExceedsLimit', discountData.discountExceedsLimit);
-                form.setValue('finalTotal', discountData.finalTotal);
+                // finalTotal will be calculated in the useEffect
               }}
             />
 
