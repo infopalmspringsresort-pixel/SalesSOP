@@ -214,30 +214,28 @@ export const menuPackageSchema = z.object({
   updatedAt: z.date().optional(),
 });
 
-// Menu Item Schema (Client-side with string IDs)
+// Package Item Schema (Client-side with string IDs) - renamed from Menu Item
+// These are items inside menu packages (e.g., soups, starters with quantities)
 export const menuItemSchema = z.object({
   id: z.string().optional(),
   packageId: z.string(), // Reference to menu package
-  category: z.string(), // e.g., "Welcome Drinks", "Soup Station", "Main Course"
-  name: z.string(), // e.g., "Chicken Biryani", "Dal Tadka"
+  name: z.string(), // Package item name (e.g., "Soup", "Floating Starters", "Welcome Drinks")
   description: z.string().optional(),
-  quantity: z.number().optional().default(1), // Number of items in this category
-  price: z.number().min(1, "Price must be at least 1"), // Individual item price (contributes to package total)
-  additionalPrice: z.number().optional().default(0), // Extra charge if applicable (for additional items)
+  quantity: z.number().optional().default(1), // Number of items (e.g., 1 soup, 2 starters)
   isVeg: z.boolean().optional().default(true), // Vegetarian or Non-Vegetarian
   createdAt: z.date().optional(),
   updatedAt: z.date().optional(),
 });
 
 // Additional Item Schema (Client-side with string IDs)
+// These are additional package items with price - similar to package items but with price
 export const additionalItemSchema = z.object({
   id: z.string().optional(),
-  name: z.string(), // e.g., "Juice Mocktail", "Soup"
-  price: z.number().min(1, "Price must be at least 1"), // Price per person
-  currency: z.string().optional().default('INR'),
-  category: z.string(), // e.g., "Beverages", "Starters", "Desserts"
+  name: z.string(), // Package item name (e.g., "Soup", "Floating Starters", "Welcome Drinks")
   description: z.string().optional(),
-  isVeg: z.boolean().optional().default(true),
+  quantity: z.number().optional().default(1), // Number of items (e.g., 1 soup, 2 starters)
+  price: z.number().min(1, "Price must be at least 1"), // Price per person
+  isVeg: z.boolean().optional().default(true), // Vegetarian or Non-Vegetarian
   isActive: z.boolean().optional().default(true),
   createdAt: z.date().optional(),
   updatedAt: z.date().optional(),
@@ -311,14 +309,14 @@ export const insertPackageVenueMappingSchema = packageVenueMappingSchema.omit({ 
 
 // Venue Rental Package Item
 export const venueRentalItemSchema = z.object({
-  eventDate: z.string(), // Date in YYYY-MM-DD format
+  eventDate: z.string().optional(), // Date in YYYY-MM-DD format or DD/MM/YYYY (optional for packages)
   venue: z.string(),
   venueSpace: z.string(), // e.g., "15000 Sq. ft."
   session: z.string(), // e.g., "All", "Morning", "Evening"
   sessionRate: z.number(),
 });
 
-// Room Package (simplified)
+// Room Package (simplified) - must be defined before quotationPackageSchema
 export const roomPackageSchema = z.object({
   category: z.string(), // e.g., "Standard Room", "Deluxe Room"
   rate: z.number(), // Room rate
@@ -328,6 +326,54 @@ export const roomPackageSchema = z.object({
   maxOccupancy: z.number().optional(), // Max occupancy per room from room type
   extraPersonRate: z.number().optional(), // Extra person rate from room type
 });
+
+// Quotation Package Schema - saved quotation templates that can be reused
+export const quotationPackageSchema = z.object({
+  id: z.string().optional(),
+  name: z.string().min(1, "Package name is required"), // e.g., "Wedding Package - Standard", "Corporate Event Package"
+  description: z.string().optional(),
+  
+  // Venue Rental Package
+  venueRentalItems: z.array(venueRentalItemSchema).default([]),
+  
+  // Room Quotation
+  roomPackages: z.array(roomPackageSchema).default([]),
+  
+  // Menu Packages
+  menuPackages: z.array(z.object({
+    id: z.string().optional(),
+    name: z.string(),
+    type: z.string().default('non-veg'),
+    price: z.number().default(0),
+    gst: z.number().default(18),
+    selectedItems: z.array(z.object({
+      id: z.string().optional(),
+      name: z.string(),
+      price: z.number().default(0),
+      additionalPrice: z.number().default(0),
+      isPackageItem: z.boolean().default(true)
+    })).default([]),
+    customItems: z.array(z.object({
+      name: z.string(),
+      price: z.number().default(0)
+    })).default([])
+  })).default([]),
+  
+  // Default settings
+  includeGST: z.boolean().default(false),
+  defaultDiscountType: z.enum(['percentage', 'fixed']).optional(),
+  defaultDiscountValue: z.number().default(0),
+  
+  // Terms & Conditions (defaults)
+  checkInTime: z.string().default("14:00"),
+  checkOutTime: z.string().default("11:00"),
+  
+  isActive: z.boolean().optional().default(true),
+  createdAt: z.date().optional(),
+  updatedAt: z.date().optional(),
+});
+
+export const insertQuotationPackageSchema = quotationPackageSchema.omit({ id: true, createdAt: true, updatedAt: true });
 
 // Main Quotation Schema
 export const quotationSchema = z.object({
@@ -363,7 +409,8 @@ export const quotationSchema = z.object({
       name: z.string(),
       price: z.number().default(0), // Individual item price
       additionalPrice: z.number().default(0), // Extra charge for additional items
-      isPackageItem: z.boolean().default(true) // True if from package, false if additional
+      isPackageItem: z.boolean().default(true), // True if from package, false if additional
+      quantity: z.number().optional().default(1) // Quantity of this item
     })).default([]),
     customItems: z.array(z.object({
       name: z.string(),
@@ -459,6 +506,8 @@ export type PackageVenueMapping = z.infer<typeof packageVenueMappingSchema>;
 export type VenueRentalItem = z.infer<typeof venueRentalItemSchema>;
 export type RoomPackage = z.infer<typeof roomPackageSchema>;
 export type Quotation = z.infer<typeof quotationSchema>;
+export type QuotationPackage = z.infer<typeof quotationPackageSchema>;
+export type InsertQuotationPackage = z.infer<typeof insertQuotationPackageSchema>;
 
 export type InsertMenuPackage = z.infer<typeof insertMenuPackageSchema>;
 export type InsertMenuItem = z.infer<typeof insertMenuItemSchema>;

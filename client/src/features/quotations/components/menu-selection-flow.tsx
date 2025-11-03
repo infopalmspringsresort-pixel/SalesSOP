@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { Check, Utensils, Edit, ArrowRight, ArrowLeft } from "lucide-react";
-import type { MenuPackage } from "@shared/schema-client";
+import type { MenuPackage, MenuItem } from "@shared/schema-client";
 import MenuItemEditor from "./menu-item-editor";
 
 interface MenuSelectionFlowProps {
@@ -23,6 +23,12 @@ export default function MenuSelectionFlow({ open, onOpenChange, onSave }: MenuSe
   const [editingPackage, setEditingPackage] = useState<MenuPackage | null>(null);
   const [customMenuItems, setCustomMenuItems] = useState<any>({});
   const [showMenuItemEditor, setShowMenuItemEditor] = useState(false);
+  
+  // Fetch menu items to auto-initialize when package is selected
+  const { data: packageItems = [] } = useQuery<MenuItem[]>({
+    queryKey: ["/api/menus/items"],
+    enabled: open,
+  });
   const { toast } = useToast();
 
   // Fetch menu packages
@@ -47,6 +53,56 @@ export default function MenuSelectionFlow({ open, onOpenChange, onSave }: MenuSe
       // Don't reset customMenuItems to preserve previous selections
     }
   }, [open]);
+
+  // Auto-initialize package items when packageItems are loaded and we're in editing step
+  useEffect(() => {
+    if (open && selectedPackage && currentStep === 'editing' && packageItems.length > 0) {
+      // Only initialize if not already set
+      if (!customMenuItems[selectedPackage]) {
+        const menuPackage = menuPackages.find(pkg => pkg.id === selectedPackage);
+        if (menuPackage) {
+          // Get package items for this package
+          const filteredItems = packageItems.filter((item: any) => {
+            // Handle both string and ObjectId formats
+            const itemPackageId = typeof item.packageId === 'string' ? item.packageId : item.packageId?.toString();
+            const selectedPackageId = typeof selectedPackage === 'string' ? selectedPackage : selectedPackage.toString();
+            return itemPackageId === selectedPackageId;
+          });
+          
+          console.log('🔍 Auto-initializing package items:', {
+            selectedPackage,
+            filteredItemsCount: filteredItems.length,
+            items: filteredItems.map((item: any) => ({ name: item.name, quantity: item.quantity }))
+          });
+          
+          // Initialize with all package items selected - preserve actual quantity from database
+          const selectedItemsWithDetails = filteredItems.map((item: any) => {
+            const quantity = (item.quantity !== undefined && item.quantity !== null) ? item.quantity : 1;
+            console.log(`🔍 Item ${item.name}: quantity=${item.quantity}, using=${quantity}`);
+            return {
+              id: item.id || item._id?.toString(),
+              name: item.name,
+              price: item.price || 0,
+              additionalPrice: item.additionalPrice || 0,
+              isPackageItem: true,
+              quantity: quantity
+            };
+          });
+          
+          setCustomMenuItems(prev => ({
+            ...prev,
+            [selectedPackage]: {
+              selectedItems: selectedItemsWithDetails,
+              customItems: [],
+              totalPackageItems: filteredItems.length,
+              excludedItemCount: 0,
+              totalDeduction: 0
+            }
+          }));
+        }
+      }
+    }
+  }, [open, selectedPackage, currentStep, packageItems, menuPackages]);
 
   const handlePackageSelect = (packageId: string) => {
     setSelectedPackage(packageId);
@@ -85,6 +141,41 @@ export default function MenuSelectionFlow({ open, onOpenChange, onSave }: MenuSe
         return;
       }
       setCurrentStep('editing');
+      
+      // Immediately initialize if packageItems are available, otherwise useEffect will handle it
+      if (packageItems.length > 0 && !customMenuItems[selectedPackage]) {
+        const menuPackage = menuPackages.find(pkg => pkg.id === selectedPackage);
+        if (menuPackage) {
+          const filteredItems = packageItems.filter((item: any) => {
+            const itemPackageId = typeof item.packageId === 'string' ? item.packageId : item.packageId?.toString();
+            const selectedPackageId = typeof selectedPackage === 'string' ? selectedPackage : selectedPackage.toString();
+            return itemPackageId === selectedPackageId;
+          });
+          
+          const selectedItemsWithDetails = filteredItems.map((item: any) => {
+            const quantity = (item.quantity !== undefined && item.quantity !== null) ? item.quantity : 1;
+            return {
+              id: item.id || item._id?.toString(),
+              name: item.name,
+              price: item.price || 0,
+              additionalPrice: item.additionalPrice || 0,
+              isPackageItem: true,
+              quantity: quantity
+            };
+          });
+          
+          setCustomMenuItems(prev => ({
+            ...prev,
+            [selectedPackage]: {
+              selectedItems: selectedItemsWithDetails,
+              customItems: [],
+              totalPackageItems: filteredItems.length,
+              excludedItemCount: 0,
+              totalDeduction: 0
+            }
+          }));
+        }
+      }
     } else if (currentStep === 'editing') {
       setCurrentStep('review');
     }
@@ -98,9 +189,94 @@ export default function MenuSelectionFlow({ open, onOpenChange, onSave }: MenuSe
     }
   };
 
-  const handleSave = () => {
-    const packageData = customMenuItems[selectedPackage];
-    console.log('🔍 MenuSelectionFlow handleSave calling onSave with:', { selectedPackage, packageData });
+  const handleSave = async () => {
+    let packageData = customMenuItems[selectedPackage];
+    
+    // If packageData is not set OR selectedItems is empty, initialize with all package items
+    if (!packageData || !packageData.selectedItems || packageData.selectedItems.length === 0) {
+      const menuPackage = menuPackages.find(pkg => pkg.id === selectedPackage);
+      if (!menuPackage) {
+        toast({
+          title: "Error",
+          description: "Menu package not found",
+          variant: "destructive",
+        });
+        return;
+      }
+      
+      // Get package items for this package - handle both string and ObjectId
+      let filteredItems = packageItems.filter((item: any) => {
+        const itemPackageId = typeof item.packageId === 'string' ? item.packageId : item.packageId?.toString();
+        const selectedPackageId = typeof selectedPackage === 'string' ? selectedPackage : selectedPackage.toString();
+        return itemPackageId === selectedPackageId;
+      });
+      
+      // If packageItems haven't loaded yet, fetch them
+      if (filteredItems.length === 0 && packageItems.length === 0) {
+        try {
+          const response = await fetch('/api/menus/items');
+          if (response.ok) {
+            const allItems = await response.json();
+            filteredItems = allItems.filter((item: any) => {
+              const itemPackageId = typeof item.packageId === 'string' ? item.packageId : item.packageId?.toString();
+              const selectedPackageId = typeof selectedPackage === 'string' ? selectedPackage : selectedPackage.toString();
+              return itemPackageId === selectedPackageId;
+            });
+          }
+        } catch (error) {
+          console.error('Error fetching menu items:', error);
+        }
+      }
+      
+      console.log('🔍 handleSave: Initializing with items:', filteredItems.map((item: any) => ({ name: item.name, quantity: item.quantity })));
+      
+      // Initialize with all package items selected - preserve actual quantity from database
+      const selectedItemsWithDetails = filteredItems.map((item: any) => {
+        const quantity = (item.quantity !== undefined && item.quantity !== null) ? item.quantity : 1;
+        return {
+          id: item.id || item._id?.toString(),
+          name: item.name,
+          price: item.price || 0,
+          additionalPrice: item.additionalPrice || 0,
+          isPackageItem: true,
+          quantity: quantity
+        };
+      });
+      
+      packageData = {
+        selectedItems: selectedItemsWithDetails,
+        customItems: [],
+        totalPackageItems: filteredItems.length,
+        excludedItemCount: 0,
+        totalDeduction: 0
+      };
+      
+      // Update state so it's available for future use
+      setCustomMenuItems(prev => ({
+        ...prev,
+        [selectedPackage]: packageData
+      }));
+    }
+    
+    // Ensure selectedItems and customItems are always arrays
+    if (!packageData.selectedItems || packageData.selectedItems.length === 0) {
+      toast({
+        title: "Error",
+        description: "No menu items found for this package. Please try again.",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    if (!packageData.customItems) packageData.customItems = [];
+    
+    console.log('🔍 MenuSelectionFlow handleSave calling onSave with:', { 
+      selectedPackage, 
+      packageData,
+      selectedItemsCount: packageData.selectedItems.length,
+      items: packageData.selectedItems.map((item: any) => ({ name: item.name, quantity: item.quantity }))
+    });
+    
     onSave(selectedPackage, packageData);
     onOpenChange(false);
     toast({

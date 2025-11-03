@@ -30,16 +30,22 @@ export default function MenuManagement() {
   // Fetch menu packages
   const { data: packages = [], isLoading: packagesLoading } = useQuery<MenuPackage[]>({
     queryKey: ["/api/menus/packages"],
+    staleTime: 0, // Always fetch fresh data
+    refetchOnMount: true,
   });
 
   // Fetch menu items
   const { data: items = [], isLoading: itemsLoading } = useQuery<MenuItem[]>({
     queryKey: ["/api/menus/items"],
+    staleTime: 0, // Always fetch fresh data
+    refetchOnMount: true,
   });
 
   // Fetch additional items
   const { data: additionalItems = [], isLoading: additionalItemsLoading } = useQuery<AdditionalItem[]>({
     queryKey: ["/api/menus/additional-items"],
+    staleTime: 0, // Always fetch fresh data
+    refetchOnMount: true,
   });
 
   // Delete package mutation
@@ -65,11 +71,11 @@ export default function MenuManagement() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/menus/items"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/menus/packages"] }); // Refresh packages to show updated prices
-      toast({ title: "Success", description: "Menu item deleted successfully" });
+      queryClient.invalidateQueries({ queryKey: ["/api/menus/packages"] });
+      toast({ title: "Success", description: "Package item deleted successfully" });
     },
     onError: () => {
-      toast({ title: "Error", description: "Failed to delete menu item", variant: "destructive" });
+      toast({ title: "Error", description: "Failed to delete package item", variant: "destructive" });
     },
   });
 
@@ -213,7 +219,7 @@ export default function MenuManagement() {
           </TabsTrigger>
           <TabsTrigger value="items" className="flex items-center gap-2">
             <Utensils className="w-4 h-4" />
-            Menu Items
+            Package Items
           </TabsTrigger>
           <TabsTrigger value="additional" className="flex items-center gap-2">
             <PlusCircle className="w-4 h-4" />
@@ -271,31 +277,49 @@ export default function MenuManagement() {
                     </div>
                   </CardHeader>
                   <CardContent>
-                    <div className="space-y-2">
+                    <div className="space-y-3">
                       <div className="flex justify-between">
                         <span className="text-sm text-muted-foreground">Package Price:</span>
                         <span className="font-semibold">₹{pkg.price}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-sm text-muted-foreground">Total Items:</span>
+                        <span className="text-sm text-muted-foreground">Package Items:</span>
                         <span className="text-sm">{itemsByPackage[pkg.id!]?.length || 0}</span>
                       </div>
-                      {itemsByPackage[pkg.id!]?.length > 0 && (
-                        <div className="flex justify-between">
-                          <span className="text-sm text-muted-foreground">Sum of Items:</span>
-                          <span className="text-sm font-medium text-green-600">
-                            ₹{itemsByPackage[pkg.id!].reduce((sum, item) => sum + (item.price || 0), 0)}
-                          </span>
+                      
+                      {/* Show Package Items */}
+                      {itemsByPackage[pkg.id!] && itemsByPackage[pkg.id!].length > 0 && (
+                        <div className="mt-3 pt-3 border-t">
+                          <p className="text-xs font-medium text-muted-foreground mb-2">Package Items:</p>
+                          <div className="space-y-2 max-h-40 overflow-y-auto">
+                            {itemsByPackage[pkg.id!].map((item) => (
+                              <div key={item.id} className="text-xs bg-muted/50 p-2 rounded">
+                                <div className="flex items-center justify-between">
+                                  <span className="font-medium">{item.name}</span>
+                                  {item.quantity > 1 && (
+                                    <Badge variant="secondary" className="text-[10px] ml-2">
+                                      Qty: {item.quantity}
+                                    </Badge>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-2 mt-1">
+                                  {item.isVeg !== undefined && (
+                                    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] ${item.isVeg ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>
+                                      <span className={`inline-flex items-center justify-center w-3 h-3 ${item.isVeg ? 'border-green-700' : 'border-red-700'} border rounded-sm`}>
+                                        <span className={`${item.isVeg ? 'bg-green-700' : 'bg-red-700'} w-1.5 h-1.5 rounded-full`} />
+                                      </span>
+                                      {item.isVeg ? 'Veg' : 'Non-Veg'}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
                         </div>
                       )}
-                      {pkg.gstIncluded && (
-                        <div className="flex justify-between">
-                          <span className="text-sm text-muted-foreground">GST ({pkg.gstRate}%):</span>
-                          <span className="text-sm">Included</span>
-                        </div>
-                      )}
+                      
                       {pkg.description && (
-                        <p className="text-sm text-muted-foreground mt-2">{pkg.description}</p>
+                        <p className="text-sm text-muted-foreground mt-3 pt-3 border-t">{pkg.description}</p>
                       )}
                     </div>
                   </CardContent>
@@ -305,13 +329,13 @@ export default function MenuManagement() {
           )}
         </TabsContent>
 
-        {/* Menu Items Tab */}
+        {/* Package Items Tab */}
         <TabsContent value="items" className="space-y-4">
           <div className="flex justify-between items-center">
-            <h2 className="text-xl font-semibold">Menu Items</h2>
+            <h2 className="text-xl font-semibold">Package Items</h2>
             <Button onClick={() => setShowItemForm(true)}>
               <Plus className="w-4 h-4 mr-2" />
-              Add Item
+              Add Package Item
             </Button>
           </div>
 
@@ -352,17 +376,11 @@ export default function MenuManagement() {
                                     {item.isVeg ? 'Veg' : 'Non-Veg'}
                                   </span>
                                 )}
-                                <Badge variant="outline" className="text-xs">
-                                  {item.category}
-                                </Badge>
                                 {item.quantity > 1 && (
                                   <Badge variant="secondary" className="text-xs">
                                     Qty: {item.quantity}
                                   </Badge>
                                 )}
-                                <Badge variant="default" className="text-xs bg-green-600">
-                                  ₹{item.price || 0}
-                                </Badge>
                               </div>
                               {item.description && (
                                 <p className="text-sm text-muted-foreground mt-1">{item.description}</p>
@@ -455,8 +473,22 @@ export default function MenuManagement() {
                         <span className="text-sm text-muted-foreground">Price per person:</span>
                         <span className="font-semibold">₹{item.price}</span>
                       </div>
+                      <div className="flex justify-between">
+                        <span className="text-sm text-muted-foreground">Quantity:</span>
+                        <span className="text-sm">{item.quantity || 1}</span>
+                      </div>
+                      {item.isVeg !== undefined && (
+                        <div className="flex items-center gap-2">
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs ${item.isVeg ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>
+                            <span className={`inline-flex items-center justify-center w-3.5 h-3.5 ${item.isVeg ? 'border-green-700' : 'border-red-700'} border rounded-sm`}>
+                              <span className={`${item.isVeg ? 'bg-green-700' : 'bg-red-700'} w-1.5 h-1.5 rounded-full`} />
+                            </span>
+                            {item.isVeg ? 'Veg' : 'Non-Veg'}
+                          </span>
+                        </div>
+                      )}
                       {item.description && (
-                        <p className="text-sm text-muted-foreground">{item.description}</p>
+                        <p className="text-sm text-muted-foreground mt-2">{item.description}</p>
                       )}
                     </div>
                   </CardContent>

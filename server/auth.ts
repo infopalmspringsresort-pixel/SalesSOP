@@ -36,7 +36,19 @@ export function getSession() {
 
       // Handle session store errors gracefully
       sessionStore.on('error', (error) => {
-        });
+        // ECONNRESET errors are common with MongoDB connections and can be safely ignored
+        // These happen when the connection drops temporarily and will auto-reconnect
+        if (error.message && (
+          error.message.includes('ECONNRESET') ||
+          error.message.includes('ETIMEDOUT') ||
+          error.message.includes('connection')
+        )) {
+          // Silently ignore connection-related errors - they'll auto-reconnect
+          return;
+        }
+        // Log other errors for debugging
+        console.error('Session store error:', error.message);
+      });
 
       return session({
         secret: process.env.SESSION_SECRET!,

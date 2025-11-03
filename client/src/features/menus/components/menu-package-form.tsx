@@ -1,20 +1,18 @@
 import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { insertMenuPackageSchema } from "@shared/schema-client";
 import { z } from "zod";
-import type { MenuPackage, MenuItem } from "@shared/schema-client";
+import type { MenuPackage } from "@shared/schema-client";
 
 const formSchema = insertMenuPackageSchema;
 
@@ -28,12 +26,6 @@ export default function MenuPackageForm({ open, onOpenChange, editingPackage }: 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const queryClient = useQueryClient();
   const { toast } = useToast();
-
-  // Fetch menu items for price calculation
-  const { data: menuItems = [] } = useQuery<MenuItem[]>({
-    queryKey: ["/api/menus/items"],
-    enabled: open,
-  });
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -63,23 +55,6 @@ export default function MenuPackageForm({ open, onOpenChange, editingPackage }: 
       });
     }
   }, [editingPackage, form]);
-
-  // Calculate price based on menu items for this package
-  const calculatePackagePrice = (packageId: string) => {
-    const packageItems = menuItems.filter(item => item.packageId === packageId);
-    const totalPrice = packageItems.reduce((sum, item) => {
-      return sum + (item.price || 0); // Use item.price instead of additionalPrice
-    }, 0);
-    return totalPrice;
-  };
-
-  // Auto-calculate and update price when editing a package or when menu items change
-  useEffect(() => {
-    if (editingPackage && menuItems.length > 0) {
-      const calculatedPrice = calculatePackagePrice(editingPackage.id!);
-      form.setValue('price', calculatedPrice, { shouldValidate: true });
-    }
-  }, [editingPackage, menuItems, form]);
 
   const createPackageMutation = useMutation({
     mutationFn: async (data: z.infer<typeof formSchema>) => {
@@ -130,21 +105,10 @@ export default function MenuPackageForm({ open, onOpenChange, editingPackage }: 
   const onSubmit = async (data: z.infer<typeof formSchema>) => {
     setIsSubmitting(true);
     try {
-      // Calculate price from menu items for this package
-      let calculatedPrice = 0;
       if (editingPackage) {
-        calculatedPrice = calculatePackagePrice(editingPackage.id!);
-      }
-      
-      const formData = {
-        ...data,
-        price: calculatedPrice, // Set calculated price
-      };
-      
-      if (editingPackage) {
-        await updatePackageMutation.mutateAsync(formData);
+        await updatePackageMutation.mutateAsync(data);
       } else {
-        await createPackageMutation.mutateAsync(formData);
+        await createPackageMutation.mutateAsync(data);
       }
     } finally {
       setIsSubmitting(false);
@@ -201,6 +165,32 @@ export default function MenuPackageForm({ open, onOpenChange, editingPackage }: 
                 )}
               />
 
+              {/* Package Price */}
+              <FormField
+                control={form.control}
+                name="price"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Package Price (₹) *</FormLabel>
+                    <FormControl>
+                      <Input 
+                        type="number" 
+                        placeholder="Enter package price per person" 
+                        {...field}
+                        value={field.value ?? ""}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          field.onChange(value === "" ? 0 : Number(value));
+                        }}
+                      />
+                    </FormControl>
+                    <p className="text-sm text-muted-foreground">
+                      Price per person for this package
+                    </p>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
             </div>
 

@@ -211,6 +211,13 @@ export interface IStorage {
   createQuotationActivity(activity: any): Promise<void>;
   getQuotationActivitiesByEnquiry(enquiryId: string): Promise<any[]>;
 
+  // Quotation Package operations
+  getQuotationPackages(): Promise<any[]>;
+  getQuotationPackageById(id: string): Promise<any>;
+  createQuotationPackage(package_: any): Promise<any>;
+  updateQuotationPackage(id: string, data: any): Promise<any>;
+  deleteQuotationPackage(id: string): Promise<boolean>;
+
 }
 
 // DatabaseStorage class - Postgres implementation (not used when DB_PROVIDER=mongo)
@@ -350,6 +357,13 @@ class DatabaseStorage implements IStorage {
   // Quotation activity tracking
   async createQuotationActivity(activity: any): Promise<void> { throw new Error('Postgres not available'); }
   async getQuotationActivitiesByEnquiry(enquiryId: string): Promise<any[]> { throw new Error('Postgres not available'); }
+  
+  // Quotation Package operations
+  async getQuotationPackages(): Promise<any[]> { throw new Error('Postgres not available'); }
+  async getQuotationPackageById(id: string): Promise<any> { throw new Error('Postgres not available'); }
+  async createQuotationPackage(package_: any): Promise<any> { throw new Error('Postgres not available'); }
+  async updateQuotationPackage(id: string, data: any): Promise<any> { throw new Error('Postgres not available'); }
+  async deleteQuotationPackage(id: string): Promise<boolean> { throw new Error('Postgres not available'); }
 
 }
 

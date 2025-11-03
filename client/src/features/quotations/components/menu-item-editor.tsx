@@ -98,24 +98,30 @@ export default function MenuItemEditor({ open, onOpenChange, menuPackage, onSave
       // Find the item in package items
       const packageItem = packageItems.find(item => item.id === itemId);
       if (packageItem) {
+        // Preserve actual quantity from database - only default to 1 if quantity is truly missing
+        const quantity = (packageItem.quantity !== undefined && packageItem.quantity !== null) ? packageItem.quantity : 1;
+        console.log(`🔍 MenuItemEditor: Item ${packageItem.name} - db quantity=${packageItem.quantity}, using=${quantity}`);
         return {
           id: packageItem.id,
           name: packageItem.name,
           price: packageItem.price || 0, // Individual item price
           additionalPrice: packageItem.additionalPrice || 0,
-          isPackageItem: true
+          isPackageItem: true,
+          quantity: quantity // Preserve quantity from package item
         };
       }
       
       // Find the item in additional items
       const additionalItem = additionalItems.find(item => item.id === itemId);
       if (additionalItem) {
+        const quantity = (additionalItem.quantity !== undefined && additionalItem.quantity !== null) ? additionalItem.quantity : 1;
         return {
           id: additionalItem.id,
           name: additionalItem.name,
           price: 0, // Additional items don't have base price
           additionalPrice: additionalItem.price || 0, // Their price is in additionalPrice
-          isPackageItem: false
+          isPackageItem: false,
+          quantity: quantity // Preserve quantity from additional item
         };
       }
       

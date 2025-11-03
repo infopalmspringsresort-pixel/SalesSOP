@@ -4,9 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -24,19 +22,6 @@ interface AdditionalItemFormProps {
   editingItem?: AdditionalItem | null;
 }
 
-// Predefined categories based on your PDF data
-const ADDITIONAL_CATEGORIES = [
-  "Beverages",
-  "Starters",
-  "Main Course",
-  "Desserts",
-  "Snacks",
-  "Live Counters",
-  "Fruit Counters",
-  "Tea & Coffee",
-  "Other"
-];
-
 export default function AdditionalItemForm({ open, onOpenChange, editingItem }: AdditionalItemFormProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const queryClient = useQueryClient();
@@ -46,9 +31,9 @@ export default function AdditionalItemForm({ open, onOpenChange, editingItem }: 
     resolver: zodResolver(formSchema),
     defaultValues: {
       name: "",
-      price: undefined,
-      category: "",
       description: "",
+      quantity: undefined,
+      price: undefined,
       isVeg: true,
     },
   });
@@ -58,17 +43,17 @@ export default function AdditionalItemForm({ open, onOpenChange, editingItem }: 
     if (editingItem) {
       form.reset({
         name: editingItem.name,
-        price: editingItem.price,
-        category: editingItem.category,
         description: editingItem.description || "",
-        isVeg: editingItem.isVeg,
+        quantity: editingItem.quantity,
+        price: editingItem.price,
+        isVeg: editingItem.isVeg !== undefined ? editingItem.isVeg : true,
       });
     } else {
       form.reset({
         name: "",
-        price: undefined,
-        category: "",
         description: "",
+        quantity: undefined,
+        price: undefined,
         isVeg: true,
       });
     }
@@ -145,42 +130,40 @@ export default function AdditionalItemForm({ open, onOpenChange, editingItem }: 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Item Name */}
+              {/* Package Item Name */}
               <FormField
                 control={form.control}
                 name="name"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Item Name *</FormLabel>
+                    <FormLabel>Package Item Name *</FormLabel>
                     <FormControl>
-                      <Input placeholder="e.g., Juice Mocktail, Soup" {...field} />
+                      <Input placeholder="e.g., Soup, Floating Starters, Welcome Drinks" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
               />
 
-              {/* Category */}
+              {/* Quantity */}
               <FormField
                 control={form.control}
-                name="category"
+                name="quantity"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Category *</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select category" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {ADDITIONAL_CATEGORIES.map((category) => (
-                          <SelectItem key={category} value={category}>
-                            {category}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <FormLabel>Quantity</FormLabel>
+                    <FormControl>
+                      <Input 
+                        type="number" 
+                        placeholder="1" 
+                        {...field}
+                        value={field.value ?? ""}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          field.onChange(value === "" ? undefined : Number(value));
+                        }}
+                      />
+                    </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -212,13 +195,12 @@ export default function AdditionalItemForm({ open, onOpenChange, editingItem }: 
 
             </div>
 
-            {/* Checkboxes */}
-            <div className="space-y-4">
-              <FormField
-                control={form.control}
-                name="isVeg"
-                render={({ field }) => (
-                  <FormItem className="flex flex-row items-start space-x-3 space-y-0">
+            {/* Veg/Non-Veg */}
+            <FormField
+              control={form.control}
+              name="isVeg"
+              render={({ field }) => (
+                <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
                     <FormControl>
                       <Checkbox
                         checked={field.value}
@@ -226,7 +208,9 @@ export default function AdditionalItemForm({ open, onOpenChange, editingItem }: 
                       />
                     </FormControl>
                     <div className="space-y-1 leading-none">
-                      <FormLabel>Vegetarian Item</FormLabel>
+                      <FormLabel>
+                        Vegetarian Item
+                      </FormLabel>
                       <p className="text-sm text-muted-foreground">
                         Check if this is a vegetarian item
                       </p>
@@ -234,8 +218,6 @@ export default function AdditionalItemForm({ open, onOpenChange, editingItem }: 
                   </FormItem>
                 )}
               />
-
-            </div>
 
             {/* Description */}
             <FormField

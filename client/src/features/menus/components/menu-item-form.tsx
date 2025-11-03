@@ -25,35 +25,6 @@ interface MenuItemFormProps {
   packages: MenuPackage[];
 }
 
-// Predefined categories based on your PDF data
-const MENU_CATEGORIES = [
-  "Welcome Drinks",
-  "Soup Station",
-  "Floating Starters",
-  "Veg Floating Starters",
-  "Non-Veg Floating Starters",
-  "Salad Bar",
-  "Curd Raita",
-  "Speciality Main Course",
-  "Main Course",
-  "Veg Main Course",
-  "Non-Veg Main Course",
-  "Dal Preparation",
-  "Rice Preparation",
-  "Assorted Indian Breads",
-  "Papad Pickle Chutney Bar",
-  "Indian Dessert",
-  "Western Dessert",
-  "Ice Cream",
-  "Farsan",
-  "Live Chaat Station",
-  "Specialty Live Counter",
-  "Dahi Wada",
-  "Kulfi",
-  "Paan",
-  "Other"
-];
-
 export default function MenuItemForm({ open, onOpenChange, editingItem, packages }: MenuItemFormProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const queryClient = useQueryClient();
@@ -64,12 +35,9 @@ export default function MenuItemForm({ open, onOpenChange, editingItem, packages
     resolver: zodResolver(formSchema),
     defaultValues: {
       packageId: "",
-      category: "",
       name: "",
       description: "",
       quantity: undefined,
-      price: undefined,
-      additionalPrice: undefined,
       isVeg: true,
     },
   });
@@ -79,23 +47,17 @@ export default function MenuItemForm({ open, onOpenChange, editingItem, packages
     if (editingItem) {
       form.reset({
         packageId: editingItem.packageId,
-        category: editingItem.category,
         name: editingItem.name,
         description: editingItem.description || "",
         quantity: editingItem.quantity,
-        price: editingItem.price,
-        additionalPrice: editingItem.additionalPrice,
         isVeg: editingItem.isVeg !== undefined ? editingItem.isVeg : true,
       });
     } else {
       form.reset({
         packageId: "",
-        category: "",
         name: "",
         description: "",
         quantity: undefined,
-        price: undefined,
-        additionalPrice: undefined,
         isVeg: true,
       });
     }
@@ -112,8 +74,8 @@ export default function MenuItemForm({ open, onOpenChange, editingItem, packages
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/menus/items"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/menus/packages"] }); // Refresh packages to show updated prices
-      toast({ title: "Success", description: "Menu item created successfully" });
+      queryClient.invalidateQueries({ queryKey: ["/api/menus/packages"] });
+      toast({ title: "Success", description: "Package item created successfully" });
       onOpenChange(false);
     },
     onError: (error: any) => {
@@ -136,8 +98,8 @@ export default function MenuItemForm({ open, onOpenChange, editingItem, packages
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/menus/items"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/menus/packages"] }); // Refresh packages to show updated prices
-      toast({ title: "Success", description: "Menu item updated successfully" });
+      queryClient.invalidateQueries({ queryKey: ["/api/menus/packages"] });
+      toast({ title: "Success", description: "Package item updated successfully" });
       onOpenChange(false);
     },
     onError: (error: any) => {
@@ -167,7 +129,7 @@ export default function MenuItemForm({ open, onOpenChange, editingItem, packages
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
-            {editingItem ? "Edit Menu Item" : "Create Menu Item"}
+            {editingItem ? "Edit Package Item" : "Create Package Item"}
           </DialogTitle>
         </DialogHeader>
 
@@ -180,7 +142,7 @@ export default function MenuItemForm({ open, onOpenChange, editingItem, packages
                 name="packageId"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Menu Package *</FormLabel>
+                    <FormLabel>Select Package *</FormLabel>
                     <Select onValueChange={(val) => {
                       field.onChange(val);
                       const pkg = packages.find(p => p.id === val);
@@ -209,41 +171,15 @@ export default function MenuItemForm({ open, onOpenChange, editingItem, packages
                 )}
               />
 
-              {/* Category */}
-              <FormField
-                control={form.control}
-                name="category"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Category *</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select category" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {MENU_CATEGORIES.map((category) => (
-                          <SelectItem key={category} value={category}>
-                            {category}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              {/* Item Name */}
+              {/* Package Item Name */}
               <FormField
                 control={form.control}
                 name="name"
                 render={({ field }) => (
-                  <FormItem className="md:col-span-2">
-                    <FormLabel>Item Name *</FormLabel>
+                  <FormItem>
+                    <FormLabel>Package Item Name *</FormLabel>
                     <FormControl>
-                      <Input placeholder="e.g., Chicken Biryani, Dal Tadka" {...field} />
+                      <Input placeholder="e.g., Soup, Floating Starters, Welcome Drinks" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -262,26 +198,6 @@ export default function MenuItemForm({ open, onOpenChange, editingItem, packages
                         type="number" 
                         placeholder="1" 
                         {...field}
-                        onChange={(e) => field.onChange(Number(e.target.value))}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              {/* Item Price */}
-              <FormField
-                control={form.control}
-                name="price"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Item Price (₹) *</FormLabel>
-                    <FormControl>
-                      <Input 
-                        type="number" 
-                        placeholder="" 
-                        {...field}
                         value={field.value ?? ""}
                         onChange={(e) => {
                           const value = e.target.value;
@@ -289,20 +205,19 @@ export default function MenuItemForm({ open, onOpenChange, editingItem, packages
                         }}
                       />
                     </FormControl>
-                    <p className="text-sm text-muted-foreground">
-                      Individual price for this item (contributes to package total)
-                    </p>
                     <FormMessage />
                   </FormItem>
                 )}
               />
 
-              {/* Veg/Non-Veg */}
-              <FormField
-                control={form.control}
-                name="isVeg"
-                render={({ field }) => (
-                  <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
+            </div>
+
+            {/* Veg/Non-Veg */}
+            <FormField
+              control={form.control}
+              name="isVeg"
+              render={({ field }) => (
+                <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
                     <FormControl>
                       <Checkbox
                         checked={field.value}
@@ -328,9 +243,6 @@ export default function MenuItemForm({ open, onOpenChange, editingItem, packages
                   </FormItem>
                 )}
               />
-
-            </div>
-
 
             {/* Description */}
             <FormField
@@ -361,7 +273,7 @@ export default function MenuItemForm({ open, onOpenChange, editingItem, packages
                 Cancel
               </Button>
               <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting ? "Saving..." : editingItem ? "Update Item" : "Create Item"}
+                {isSubmitting ? "Saving..." : editingItem ? "Update Package Item" : "Create Package Item"}
               </Button>
             </div>
           </form>

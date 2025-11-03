@@ -21,6 +21,7 @@ import {
   Building,
   PanelLeftClose,
   PanelLeftOpen,
+  Calculator,
 } from "lucide-react";
 
 const navigation = [
@@ -31,6 +32,7 @@ const navigation = [
   { name: "Reports", href: "/reports", icon: BarChart3 },
   { name: "Menu Management", href: "/menu-management", icon: Utensils, adminOnly: true },
   { name: "Room Management", href: "/room-management", icon: Building, adminOnly: true },
+  { name: "Quotation Packages", href: "/quotation-package-management", icon: Calculator, adminOnly: true },
   { name: "Settings", href: "/settings", icon: Settings },
 ];
 

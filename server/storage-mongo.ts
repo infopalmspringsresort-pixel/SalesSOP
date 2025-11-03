@@ -2295,17 +2295,64 @@ export class MongoStorage implements IStorage {
     // Generate quotation number
     const quotationNumber = await this.getNextQuotationNumber();
     
+    // Log menuPackages to ensure arrays are preserved
+    if (quotation.menuPackages) {
+      console.log('📦 Storage: menuPackages before save:', JSON.stringify(
+        quotation.menuPackages.map((pkg: any) => ({
+          id: pkg.id,
+          name: pkg.name,
+          selectedItemsCount: pkg.selectedItems?.length || 0,
+          customItemsCount: pkg.customItems?.length || 0,
+          selectedItems: pkg.selectedItems,
+          customItems: pkg.customItems
+        })), null, 2
+      ));
+    }
+    
     const doc = {
       ...quotation,
       enquiryId: this.toObjectId(quotation.enquiryId),
       createdBy: this.toObjectId(quotation.createdBy),
       quotationNumber,
+      // Explicitly preserve menuPackages structure
+      menuPackages: quotation.menuPackages ? quotation.menuPackages.map((pkg: any) => ({
+        ...pkg,
+        selectedItems: Array.isArray(pkg.selectedItems) ? pkg.selectedItems : [],
+        customItems: Array.isArray(pkg.customItems) ? pkg.customItems : []
+      })) : [],
       createdAt: new Date(),
       updatedAt: new Date(),
     };
     
+    // Log the doc being inserted
+    if (doc.menuPackages) {
+      console.log('📦 Storage: doc.menuPackages before insert:', JSON.stringify(
+        doc.menuPackages.map((pkg: any) => ({
+          id: pkg.id,
+          name: pkg.name,
+          selectedItemsCount: pkg.selectedItems?.length || 0,
+          customItemsCount: pkg.customItems?.length || 0
+        })), null, 2
+      ));
+    }
+    
     const result = await collection.insertOne(doc);
-    return this.toApiFormat({ ...doc, _id: result.insertedId });
+    const savedDoc = { ...doc, _id: result.insertedId };
+    
+    // Log after insert to verify data was saved
+    const savedQuotation = await collection.findOne({ _id: result.insertedId });
+    if (savedQuotation?.menuPackages) {
+      console.log('✅ Storage: menuPackages after save:', JSON.stringify(
+        savedQuotation.menuPackages.map((pkg: any) => ({
+          id: pkg.id,
+          name: pkg.name,
+          selectedItemsCount: pkg.selectedItems?.length || 0,
+          customItemsCount: pkg.customItems?.length || 0
+        })), null, 2
+      ));
+    }
+    
+    return this.toApiFormat(savedDoc);
   }
 
   async updateQuotation(id: string, data: any): Promise<any> {
@@ -2373,6 +2420,49 @@ export class MongoStorage implements IStorage {
     const sequenceStr = String(sequence).padStart(3, '0');
     
     return `QTN-${year}-${month}-${day}-${sequenceStr}`;
+  }
+
+  // ============================================================================
+  // QUOTATION PACKAGE OPERATIONS
+  // ============================================================================
+
+  async getQuotationPackages(): Promise<any[]> {
+    const collection = await getCollection('quotation_packages');
+    const packages = await collection.find({}).toArray();
+    return packages.map(pkg => this.toApiFormat(pkg));
+  }
+
+  async getQuotationPackageById(id: string): Promise<any> {
+    const collection = await getCollection('quotation_packages');
+    const package_ = await collection.findOne({ _id: this.toObjectId(id) });
+    return package_ ? this.toApiFormat(package_) : undefined;
+  }
+
+  async createQuotationPackage(package_: any): Promise<any> {
+    const collection = await getCollection('quotation_packages');
+    const doc = {
+      ...package_,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    const result = await collection.insertOne(doc);
+    return this.toApiFormat({ ...doc, _id: result.insertedId });
+  }
+
+  async updateQuotationPackage(id: string, data: any): Promise<any> {
+    const collection = await getCollection('quotation_packages');
+    const result = await collection.findOneAndUpdate(
+      { _id: this.toObjectId(id) },
+      { $set: { ...data, updatedAt: new Date() } },
+      { returnDocument: 'after' }
+    );
+    return result ? this.toApiFormat(result) : undefined;
+  }
+
+  async deleteQuotationPackage(id: string): Promise<boolean> {
+    const collection = await getCollection('quotation_packages');
+    const result = await collection.deleteOne({ _id: this.toObjectId(id) });
+    return result.deletedCount > 0;
   }
 
 }

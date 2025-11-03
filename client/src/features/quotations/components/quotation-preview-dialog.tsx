@@ -103,29 +103,53 @@ export default function QuotationPreviewDialog({
           </DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-6">
+        <div className="space-y-4">
           {/* Header */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-2xl">QUOTATION</CardTitle>
-                <Badge variant="outline" className="text-lg px-3 py-1">
+          <Card className="bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200">
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between mb-2">
+                <CardTitle className="text-xl font-bold text-blue-900">QUOTATION</CardTitle>
+                <Badge variant="outline" className="px-3 py-1 bg-white">
                   {quotation.quotationNumber}
                 </Badge>
               </div>
+              <div className="flex items-center gap-2 text-xs">
+                <Badge variant={quotation.status === 'sent' ? 'default' : 'secondary'} className="text-xs">
+                  {quotation.status?.toUpperCase() || 'DRAFT'}
+                </Badge>
+                <span className="text-muted-foreground">
+                  {quotation.createdAt ? new Date(quotation.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : 'N/A'}
+                </span>
+              </div>
             </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 gap-4 text-sm">
+            <CardContent className="pt-0">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
-                  <p><strong>Date:</strong> {new Date(quotation.createdAt).toLocaleDateString()}</p>
+                  <p className="text-xs text-muted-foreground mb-0.5">Event Type</p>
+                  <p className="text-sm font-semibold capitalize">{quotation.eventType || 'N/A'}</p>
                 </div>
                 <div>
-                  <div className="flex items-center gap-2">
-                    <strong>Status:</strong> 
-                    <Badge variant={quotation.status === 'sent' ? 'default' : 'secondary'}>
-                      {quotation.status?.toUpperCase() || 'DRAFT'}
-                    </Badge>
-                  </div>
+                  <p className="text-xs text-muted-foreground mb-0.5">Event Date</p>
+                  <p className="text-sm font-semibold">
+                    {quotation.eventDate ? (() => {
+                      const dateStr = quotation.eventDate;
+                      if (dateStr.includes('/')) {
+                        const [day, month, year] = dateStr.split('/');
+                        return new Date(`${year}-${month}-${day}`).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+                      }
+                      return new Date(dateStr).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+                    })() : 'N/A'}
+                    {quotation.eventEndDate && (
+                      <> - {(() => {
+                        const dateStr = quotation.eventEndDate;
+                        if (dateStr.includes('/')) {
+                          const [day, month, year] = dateStr.split('/');
+                          return new Date(`${year}-${month}-${day}`).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+                        }
+                        return new Date(dateStr).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+                      })()}</>
+                    )}
+                  </p>
                 </div>
               </div>
             </CardContent>
@@ -133,18 +157,42 @@ export default function QuotationPreviewDialog({
 
           {/* Client Details */}
           <Card>
-            <CardHeader>
-              <CardTitle>Client Details</CardTitle>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Client Details</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <p><strong>Name:</strong> {quotation.clientName}</p>
-                  <p><strong>Email:</strong> {quotation.clientEmail}</p>
-                  <p><strong>Phone:</strong> {quotation.clientPhone}</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-0.5">Client Name</p>
+                    <p className="font-semibold">{quotation.clientName}</p>
+                  </div>
+                  {quotation.clientEmail && (
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-0.5">Email</p>
+                      <p className="text-sm">{quotation.clientEmail}</p>
+                    </div>
+                  )}
+                  {quotation.clientPhone && (
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-0.5">Phone</p>
+                      <p className="text-sm">{quotation.clientPhone}</p>
+                    </div>
+                  )}
                 </div>
-                <div>
-                  <p><strong>Expected Guests:</strong> {quotation.expectedGuests}</p>
+                <div className="space-y-2">
+                  {quotation.expectedGuests > 0 && (
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-0.5">Expected Guests</p>
+                      <p className="font-semibold">{quotation.expectedGuests}</p>
+                    </div>
+                  )}
+                  {quotation.eventDuration > 1 && (
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-0.5">Event Duration</p>
+                      <p className="text-sm">{quotation.eventDuration} day{quotation.eventDuration > 1 ? 's' : ''}</p>
+                    </div>
+                  )}
                 </div>
               </div>
             </CardContent>
@@ -153,15 +201,15 @@ export default function QuotationPreviewDialog({
           {/* Menu Packages */}
           {quotation.menuPackages && quotation.menuPackages.length > 0 && (
             <Card>
-              <CardHeader>
-                <CardTitle>Food & Beverage Packages</CardTitle>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Food & Beverage Packages</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4">
+                <div className="space-y-3">
                   {quotation.menuPackages.map((pkg, index) => (
-                    <div key={index} className="border rounded-lg p-4">
-                      <div className="flex items-center justify-between mb-3">
-                        <h4 className="font-semibold text-lg">{pkg.name}</h4>
+                    <div key={index} className="border rounded-lg p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="font-semibold">{pkg.name}</h4>
                         <div className="flex gap-2 items-center">
                           <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] ${pkg.type === 'veg' ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>
                             <span className={`inline-flex items-center justify-center w-3.5 h-3.5 ${pkg.type === 'veg' ? 'border-green-700' : 'border-red-700'} border rounded-sm`}>
@@ -169,76 +217,145 @@ export default function QuotationPreviewDialog({
                             </span>
                             {pkg.type === 'veg' ? 'Veg' : 'Non-Veg'}
                           </span>
-                          <Badge variant="outline">
+                          <Badge variant="outline" className="text-xs">
                             ₹{(pkg.price || 0).toLocaleString()}
                           </Badge>
                         </div>
                       </div>
                       
                       {/* Menu Items Details */}
-                      {pkg.selectedItems && pkg.selectedItems.length > 0 && (
-                        <div className="mt-3 space-y-4">
-                          {/* Package Items (included in base price) */}
-                          {(() => {
-                            const packageItems = pkg.selectedItems.filter((item: any) => item.isPackageItem || item.additionalPrice === 0);
-                            const additionalItems = pkg.selectedItems.filter((item: any) => !item.isPackageItem && item.additionalPrice > 0);
+                      {(() => {
+                        const packageItems = (pkg.selectedItems || []).filter((item: any) => item.isPackageItem !== false && (item.additionalPrice === 0 || !item.additionalPrice));
+                        const additionalItems = (pkg.selectedItems || []).filter((item: any) => !item.isPackageItem || (item.additionalPrice && item.additionalPrice > 0));
+                        const customItems = pkg.customItems || [];
+                        
+                        // Calculate totals considering quantities
+                        const packageItemsTotal = packageItems.reduce((sum: number, item: any) => {
+                          // Only count price if quantity is defined, otherwise just the price (for backward compatibility)
+                          const quantity = item.quantity !== undefined && item.quantity !== null ? item.quantity : 1;
+                          return sum + ((item.price || 0) * quantity);
+                        }, 0);
+                        const additionalItemsTotal = additionalItems.reduce((sum: number, item: any) => {
+                          const quantity = item.quantity !== undefined && item.quantity !== null ? item.quantity : 1;
+                          return sum + ((item.additionalPrice || 0) * quantity);
+                        }, 0);
+                        const customItemsTotal = customItems.reduce((sum: number, item: any) => {
+                          const quantity = item.quantity !== undefined && item.quantity !== null ? item.quantity : 1;
+                          return sum + ((item.price || 0) * quantity);
+                        }, 0);
+                        return (
+                          <div className="mt-2 space-y-2">
+                            {/* Package Items (included in base price) */}
+                            {packageItems.length > 0 && (
+                              <div>
+                                <h5 className="font-medium mb-1.5 text-xs text-green-700">Included Items:</h5>
+                                <div className="bg-green-50 rounded p-2">
+                                  <div className="space-y-1">
+                                    {packageItems.map((item: any, itemIndex: number) => {
+                                      // Get actual quantity from the item - use saved quantity or default to 1
+                                      const quantity = item.quantity !== undefined && item.quantity !== null ? item.quantity : 1;
+                                      return (
+                                        <div key={itemIndex} className="flex justify-between items-center text-xs py-1">
+                                          <div className="flex items-center gap-2">
+                                            <span className="text-green-700">{item.name}</span>
+                                            <Badge variant="outline" className="text-[10px] px-1 py-0">Qty: {quantity}</Badge>
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              </div>
+                            )}
                             
-                            return (
-                              <>
-                                {packageItems.length > 0 && (
-                                  <div>
-                                    <h5 className="font-medium mb-2 text-sm text-muted-foreground">INCLUDED IN BASE PACKAGE:</h5>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                                      {packageItems.map((item, itemIndex) => (
-                                        <div key={itemIndex} className="flex items-center text-sm py-1">
-                                          <span className="text-green-600 mr-2">✓</span>
-                                          <span className="text-gray-700">{item.name}</span>
+                            {/* Additional Items (extra charge) */}
+                            {additionalItems.length > 0 && (
+                              <div>
+                                <h5 className="font-medium mb-1.5 text-xs text-blue-700">Additional Items:</h5>
+                                <div className="bg-blue-50 rounded p-2">
+                                  <div className="space-y-1">
+                                    {additionalItems.map((item: any, itemIndex: number) => {
+                                      // Get actual quantity from the item
+                                      const quantity = item.quantity !== undefined && item.quantity !== null ? item.quantity : 1;
+                                      const additionalPrice = item.additionalPrice || 0;
+                                      const totalPrice = additionalPrice * quantity;
+                                      return (
+                                        <div key={itemIndex} className="flex justify-between items-center text-xs py-1">
+                                          <div className="flex items-center gap-2">
+                                            <span className="text-blue-700">{item.name}</span>
+                                            {quantity > 0 && (
+                                              <Badge variant="outline" className="text-[10px] px-1 py-0">Qty: {quantity}</Badge>
+                                            )}
+                                          </div>
+                                          <span className="font-medium text-blue-600">
+                                            +₹{totalPrice.toLocaleString()}
+                                          </span>
                                         </div>
-                                      ))}
-                                    </div>
+                                      );
+                                    })}
                                   </div>
-                                )}
-                                
-                                {additionalItems.length > 0 && (
-                                  <div>
-                                    <h5 className="font-medium mb-2 text-sm text-blue-600">ADDITIONAL ITEMS (EXTRA CHARGE):</h5>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                                      {additionalItems.map((item, itemIndex) => (
-                                        <div key={itemIndex} className="flex justify-between items-center text-sm py-1 border-b border-blue-100 bg-blue-50 px-2 rounded">
-                                          <span className="text-gray-700 font-medium">{item.name}</span>
-                                          <span className="font-bold text-blue-600">+₹{(item.additionalPrice || 0).toLocaleString()}</span>
+                                </div>
+                              </div>
+                            )}
+                            
+                            {/* Custom Items */}
+                            {customItems.length > 0 && (
+                              <div>
+                                <h5 className="font-medium mb-1.5 text-xs text-purple-700">Custom Items:</h5>
+                                <div className="bg-purple-50 rounded p-2">
+                                  <div className="space-y-1">
+                                    {customItems.map((item: any, itemIndex: number) => {
+                                      // Get actual quantity from the item
+                                      const quantity = item.quantity !== undefined && item.quantity !== null ? item.quantity : 1;
+                                      const itemPrice = item.price || 0;
+                                      const totalPrice = itemPrice * quantity;
+                                      return (
+                                        <div key={itemIndex} className="flex justify-between items-center text-xs py-1">
+                                          <div className="flex items-center gap-2">
+                                            <span className="text-purple-700">{item.name}</span>
+                                            {quantity > 0 && (
+                                              <Badge variant="outline" className="text-[10px] px-1 py-0">Qty: {quantity}</Badge>
+                                            )}
+                                          </div>
+                                          <span className="font-medium text-purple-600">
+                                            ₹{totalPrice.toLocaleString()}
+                                          </span>
                                         </div>
-                                      ))}
-                                    </div>
+                                      );
+                                    })}
                                   </div>
-                                )}
-                              </>
-                            );
-                          })()}
-                        </div>
-                      )}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
                       
-                      {/* Package Summary */}
-                      <div className="mt-3 pt-3 border-t">
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                          <div>
-                            <span className="text-muted-foreground">Base Price:</span>
-                            <p className="font-medium">₹{(pkg.price || 0).toLocaleString()}</p>
+                      {/* Package Total */}
+                      {(() => {
+                        const basePrice = pkg.price || 0;
+                        const additionalItems = (pkg.selectedItems || []).filter((item: any) => !item.isPackageItem || (item.additionalPrice && item.additionalPrice > 0));
+                        const customItems = pkg.customItems || [];
+                        
+                        const additionalItemsTotal = additionalItems.reduce((sum: number, item: any) => {
+                          const quantity = item.quantity !== undefined && item.quantity !== null ? item.quantity : 1;
+                          return sum + ((item.additionalPrice || 0) * quantity);
+                        }, 0);
+                        const customItemsTotal = customItems.reduce((sum: number, item: any) => {
+                          const quantity = item.quantity !== undefined && item.quantity !== null ? item.quantity : 1;
+                          return sum + ((item.price || 0) * quantity);
+                        }, 0);
+                        const packageSubtotal = basePrice + additionalItemsTotal + customItemsTotal;
+                        
+                        return (
+                          <div className="mt-2 pt-2 border-t border-gray-200">
+                            <div className="flex justify-between items-center text-sm">
+                              <span className="font-medium text-gray-700">Package Subtotal:</span>
+                              <span className="font-bold text-gray-900">₹{packageSubtotal.toLocaleString()}</span>
+                            </div>
                           </div>
-                          <div>
-                            <span className="text-muted-foreground">GST ({pkg.gst || 18}%):</span>
-                            <p className="font-medium">₹{Math.round((pkg.price || 0) * (pkg.gst || 18) / 100).toLocaleString()}</p>
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground">Items Count:</span>
-                            <p className="font-medium">{pkg.selectedItems?.length || 0}</p>
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground">Total:</span>
-                            <p className="font-medium text-green-600">₹{Math.round((pkg.price || 0) * (1 + (pkg.gst || 18) / 100)).toLocaleString()}</p>
-                          </div>
-                        </div>
-                      </div>
+                        );
+                      })()}
                     </div>
                   ))}
                 </div>
@@ -249,24 +366,42 @@ export default function QuotationPreviewDialog({
           {/* Venue Rental */}
           {quotation.venueRentalItems && quotation.venueRentalItems.length > 0 && (
             <Card>
-              <CardHeader>
-                <CardTitle>Venue Rental Packages</CardTitle>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Venue Rental Packages</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4">
+                <div className="space-y-3">
                   {quotation.venueRentalItems.map((venue, index) => (
-                    <div key={index} className="border rounded-lg p-4">
-                      <div className="flex items-center justify-between mb-3">
-                        <h4 className="font-semibold text-lg">{venue.venue}</h4>
-                        <Badge variant="outline" className="text-lg px-3 py-1">
+                    <div key={index} className="border rounded-lg p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="font-semibold">{venue.venue}</h4>
+                        <Badge variant="outline" className="px-2 py-0.5">
                           ₹{(venue.sessionRate || 0).toLocaleString()}
                         </Badge>
                       </div>
                       
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
                         <div className="space-y-1">
                           <p className="text-sm text-muted-foreground">Event Date</p>
-                          <p className="font-medium">{venue.eventDate ? new Date(venue.eventDate).toLocaleDateString() : 'N/A'}</p>
+                          <p className="font-medium">
+                            {venue.eventDate ? (() => {
+                              // Handle both DD/MM/YYYY and YYYY-MM-DD formats
+                              const dateStr = venue.eventDate;
+                              if (dateStr.includes('/')) {
+                                const [day, month, year] = dateStr.split('/');
+                                try {
+                                  return new Date(`${year}-${month}-${day}`).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+                                } catch {
+                                  return dateStr;
+                                }
+                              }
+                              try {
+                                return new Date(dateStr).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+                              } catch {
+                                return dateStr;
+                              }
+                            })() : 'N/A'}
+                          </p>
                         </div>
                         <div className="space-y-1">
                           <p className="text-sm text-muted-foreground">Venue Space</p>
@@ -274,11 +409,11 @@ export default function QuotationPreviewDialog({
                         </div>
                         <div className="space-y-1">
                           <p className="text-sm text-muted-foreground">Session</p>
-                          <p className="font-medium">{venue.session}</p>
+                          <Badge variant="outline">{venue.session}</Badge>
                         </div>
                         <div className="space-y-1">
                           <p className="text-sm text-muted-foreground">Rate per Session</p>
-                          <p className="font-medium text-green-600">₹{(venue.sessionRate || 0).toLocaleString()}</p>
+                          <p className="font-semibold text-lg text-green-600">₹{(venue.sessionRate || 0).toLocaleString()}</p>
                         </div>
                       </div>
                     </div>
@@ -291,40 +426,48 @@ export default function QuotationPreviewDialog({
           {/* Room Quotation */}
           {quotation.roomPackages && quotation.roomPackages.length > 0 && (
             <Card>
-              <CardHeader>
-                <CardTitle>Room Accommodation Packages</CardTitle>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Room Accommodation Packages</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4">
+                <div className="space-y-3">
                   {quotation.roomPackages.map((room, index) => (
-                    <div key={index} className="border rounded-lg p-4">
-                      <div className="flex items-center justify-between mb-3">
-                        <h4 className="font-semibold text-lg">{room.category}</h4>
-                        <Badge variant="outline" className="text-lg px-3 py-1">
+                    <div key={index} className="border rounded-lg p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="font-semibold">{room.category}</h4>
+                        <Badge variant="outline" className="px-2 py-0.5">
                           ₹{(room.rate || 0).toLocaleString()}
                         </Badge>
                       </div>
                       
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
                         <div className="space-y-1">
                           <p className="text-sm text-muted-foreground">Room Category</p>
-                          <p className="font-medium">{room.category}</p>
+                          <p className="font-semibold">{room.category}</p>
                         </div>
                         <div className="space-y-1">
                           <p className="text-sm text-muted-foreground">Rate per Night</p>
-                          <p className="font-medium text-green-600">₹{(room.rate || 0).toLocaleString()}</p>
+                          <p className="font-semibold text-green-600">₹{(room.rate || 0).toLocaleString()}</p>
                         </div>
-                        <div className="space-y-1">
-                          <p className="text-sm text-muted-foreground">GST (18%)</p>
-                          <p className="font-medium">₹{Math.round((room.rate || 0) * 0.18).toLocaleString()}</p>
-                        </div>
+                        {room.numberOfRooms && (
+                          <div className="space-y-1">
+                            <p className="text-sm text-muted-foreground">Number of Rooms</p>
+                            <p className="font-semibold">{room.numberOfRooms}</p>
+                          </div>
+                        )}
+                        {room.totalOccupancy && (
+                          <div className="space-y-1">
+                            <p className="text-sm text-muted-foreground">Total Occupancy</p>
+                            <p className="font-semibold">{room.totalOccupancy} guests</p>
+                          </div>
+                        )}
                       </div>
                       
-                      <div className="mt-3 pt-3 border-t">
+                      <div className="mt-2 pt-2 border-t">
                         <div className="flex justify-between items-center">
-                          <span className="text-sm text-muted-foreground">Total per Night (Including GST):</span>
-                          <span className="font-semibold text-lg text-green-600">
-                            ₹{Math.round((room.rate || 0) * 1.18).toLocaleString()}
+                          <span className="text-sm text-muted-foreground">Total ({(room.numberOfRooms || 1)} room{(room.numberOfRooms || 1) > 1 ? 's' : ''}):</span>
+                          <span className="font-semibold text-green-600">
+                            ₹{((room.rate || 0) * (room.numberOfRooms || 1)).toLocaleString()}
                           </span>
                         </div>
                       </div>
@@ -335,98 +478,94 @@ export default function QuotationPreviewDialog({
             </Card>
           )}
 
-          {/* Summary */}
+          {/* Financial Summary */}
           <Card>
-            <CardHeader>
-              <CardTitle>Financial Summary</CardTitle>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg">Financial Summary</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="space-y-4">
-                {/* Venue Rental Summary */}
-                {quotation.venueRentalTotal > 0 && (
-                  <div className="bg-blue-50 p-4 rounded-lg">
-                    <h4 className="font-semibold text-blue-900 mb-2">Venue Rental</h4>
-                    <div className="flex justify-between">
-                      <span className="text-blue-700">Venue Rental Total:</span>
-                      <span className="font-semibold text-blue-900">₹{(quotation.venueRentalTotal || 0).toLocaleString()}</span>
+              <div className="space-y-2">
+                {/* Subtotal breakdown */}
+                <div className="space-y-1.5 text-sm">
+                  {quotation.venueRentalTotal > 0 && (
+                    <div className="flex justify-between py-1">
+                      <span className="text-muted-foreground">Venue Rental:</span>
+                      <span className="font-medium">₹{(quotation.venueRentalTotal || 0).toLocaleString()}</span>
                     </div>
-                  </div>
-                )}
-                
-                {/* Room Accommodation Summary */}
-                {quotation.roomQuotationTotal > 0 && (
-                  <div className="bg-green-50 p-4 rounded-lg">
-                    <h4 className="font-semibold text-green-900 mb-2">Room Accommodation</h4>
-                    <div className="flex justify-between">
-                      <span className="text-green-700">Room Packages Total:</span>
-                      <span className="font-semibold text-green-900">₹{(quotation.roomQuotationTotal || 0).toLocaleString()}</span>
+                  )}
+                  {quotation.roomQuotationTotal > 0 && (
+                    <div className="flex justify-between py-1">
+                      <span className="text-muted-foreground">Room Accommodation:</span>
+                      <span className="font-medium">₹{(quotation.roomQuotationTotal || 0).toLocaleString()}</span>
                     </div>
-                  </div>
-                )}
-                
-                {/* Food & Beverage Summary */}
-                {quotation.menuTotal > 0 && (
-                  <div className="bg-orange-50 p-4 rounded-lg">
-                    <h4 className="font-semibold text-orange-900 mb-2">Food & Beverage</h4>
-                    <div className="flex justify-between">
-                      <span className="text-orange-700">Menu Packages Total:</span>
-                      <span className="font-semibold text-orange-900">₹{(quotation.menuTotal || 0).toLocaleString()}</span>
+                  )}
+                  {quotation.menuTotal > 0 && (
+                    <div className="flex justify-between py-1">
+                      <span className="text-muted-foreground">Food & Beverage:</span>
+                      <span className="font-medium">₹{(quotation.menuTotal || 0).toLocaleString()}</span>
                     </div>
-                  </div>
-                )}
-                
-                {/* Grand Total */}
-                <div className="bg-gray-50 p-4 rounded-lg border-2 border-gray-200">
-                  <div className="flex justify-between items-center">
-                    <span className="text-lg font-semibold text-gray-900">Grand Total:</span>
-                    <span className="text-2xl font-bold text-green-600">₹{(quotation.grandTotal || 0).toLocaleString()}</span>
-                  </div>
-                  <p className="text-sm text-gray-600 mt-1">All prices include applicable taxes</p>
+                  )}
                 </div>
 
-                {/* Discount Section */}
-                {quotation.discountAmount && quotation.discountAmount > 0 && (
-                  <div className="bg-blue-50 p-4 rounded-lg border-2 border-blue-200">
-                    <h4 className="font-semibold text-blue-900 mb-2">Discount Applied</h4>
-                    <div className="space-y-2">
-                      <div className="flex justify-between text-sm">
-                        <span className="text-blue-700">Discount Type:</span>
-                        <span className="font-medium text-blue-900">
-                          {quotation.discountType === 'percentage' ? `${quotation.discountValue}%` : `₹${quotation.discountValue?.toLocaleString()}`}
-                        </span>
+                {/* Calculate totals */}
+                {(() => {
+                  const subtotal = (quotation.venueRentalTotal || 0) + (quotation.roomQuotationTotal || 0) + (quotation.menuTotal || 0);
+                  // GST is the difference between grandTotal and subtotal (if grandTotal includes GST)
+                  // Or if grandTotal equals subtotal, GST might be calculated separately
+                  const grandTotal = quotation.grandTotal || subtotal;
+                  const gstAmount = quotation.includeGST && grandTotal > subtotal ? (grandTotal - subtotal) : 0;
+                  const discountAmount = quotation.discountAmount || 0;
+                  const finalTotal = quotation.finalTotal || grandTotal;
+                  
+                  return (
+                    <>
+                      {/* Subtotal */}
+                      <div className="flex justify-between items-center pt-2 border-t text-base">
+                        <span className="font-semibold">Subtotal:</span>
+                        <span className="font-bold">₹{subtotal.toLocaleString()}</span>
                       </div>
-                      <div className="flex justify-between pt-2 border-t border-blue-200">
-                        <span className="font-semibold text-blue-900">Discount Amount:</span>
-                        <span className="font-bold text-red-600">-₹{quotation.discountAmount.toLocaleString()}</span>
-                      </div>
-                      {quotation.discountExceedsLimit && (
-                        <div className="bg-orange-100 p-2 rounded mt-2">
-                          <p className="text-xs text-orange-800 font-medium">📧 Admin notified about this discount</p>
+
+                      {/* GST */}
+                      {quotation.includeGST && gstAmount > 0 && (
+                        <div className="flex justify-between items-center text-sm py-1">
+                          <span className="text-muted-foreground">GST:</span>
+                          <span className="font-medium">₹{Math.round(gstAmount).toLocaleString()}</span>
                         </div>
                       )}
-                    </div>
-                  </div>
-                )}
 
-                {/* Final Total after Discount */}
-                {quotation.finalTotal && quotation.finalTotal !== quotation.grandTotal && (
-                  <div className="bg-green-50 p-4 rounded-lg border-2 border-green-200">
-                    <div className="flex justify-between items-center">
-                      <span className="text-xl font-bold text-green-900">Final Total (After Discount):</span>
-                      <span className="text-3xl font-bold text-green-700">₹{(quotation.finalTotal || 0).toLocaleString()}</span>
-                    </div>
-                    <p className="text-sm text-green-700 mt-1">This is the total amount payable</p>
-                  </div>
-                )}
-                
-                {/* Validity Information */}
-                <div className="bg-yellow-50 p-3 rounded-lg">
-                  <div className="flex items-center gap-2">
-                    <span className="text-yellow-700 font-medium">Valid Until:</span>
-                    <span className="font-semibold text-yellow-900">
-                      {quotation.validUntil ? new Date(quotation.validUntil).toLocaleDateString() : '30 days from creation'}
-                    </span>
-                  </div>
+                      {/* Grand Total (before discount) */}
+                      {gstAmount > 0 && (
+                        <div className="flex justify-between items-center pt-1 border-t border-gray-200 text-base">
+                          <span className="font-semibold">Grand Total:</span>
+                          <span className="font-bold">₹{grandTotal.toLocaleString()}</span>
+                        </div>
+                      )}
+
+                      {/* Discount */}
+                      {discountAmount > 0 && (
+                        <div className="flex justify-between items-center text-sm py-1 text-blue-600">
+                          <span>
+                            Discount ({quotation.discountType === 'percentage' ? `${quotation.discountValue || 0}%` : `₹${(quotation.discountValue || 0).toLocaleString()}`}):
+                          </span>
+                          <span className="font-semibold">-₹{discountAmount.toLocaleString()}</span>
+                        </div>
+                      )}
+
+                      {/* Final Total */}
+                      <div className="flex justify-between items-center pt-3 mt-2 border-t-2 border-gray-300">
+                        <span className="text-lg font-bold text-gray-900">Final Total:</span>
+                        <span className="text-2xl font-bold text-green-600">₹{finalTotal.toLocaleString()}</span>
+                      </div>
+                    </>
+                  );
+                })()}
+
+                {/* Validity */}
+                <div className="flex items-center gap-2 pt-2 text-xs text-muted-foreground">
+                  <span>Valid Until:</span>
+                  <span className="font-medium">
+                    {quotation.validUntil ? new Date(quotation.validUntil).toLocaleDateString() : '30 days from creation'}
+                  </span>
                 </div>
               </div>
             </CardContent>

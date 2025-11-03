@@ -18,8 +18,8 @@ import { useAuth } from "@/hooks/useAuth";
 import { apiRequest } from "@/lib/queryClient";
 import { insertQuotationSchema } from "@shared/schema-client";
 import { z } from "zod";
-import { Plus, Trash2, Calculator, FileText, Building, Users, Calendar, Clock, Utensils, Edit, MapPin } from "lucide-react";
-import type { Enquiry, Venue, Quotation, MenuPackage } from "@shared/schema-client";
+import { Plus, Trash2, Calculator, FileText, Building, Users, Calendar, Clock, Utensils, Edit, MapPin, Package, Save } from "lucide-react";
+import type { Enquiry, Venue, Quotation, MenuPackage, QuotationPackage } from "@shared/schema-client";
 import MenuItemEditor from "./menu-item-editor";
 import MenuSelectionFlow from "./menu-selection-flow";
 import QuotationPreviewDialog from "./quotation-preview-dialog";
@@ -46,6 +46,9 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
   const [showMenuSelectionFlow, setShowMenuSelectionFlow] = useState(false);
   const [showPreviewDialog, setShowPreviewDialog] = useState(false);
   const [createdQuotation, setCreatedQuotation] = useState<Quotation | null>(null);
+  const [showSavePackageDialog, setShowSavePackageDialog] = useState(false);
+  const [packageName, setPackageName] = useState("");
+  const [packageDescription, setPackageDescription] = useState("");
   const [gstBreakdown, setGstBreakdown] = useState<{
     venueGST: number;
     roomGST: number;
@@ -80,6 +83,11 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
 
   const { data: menuItems = [] } = useQuery<any[]>({
     queryKey: ["/api/menus/items"],
+  });
+
+  // Fetch quotation packages
+  const { data: quotationPackages = [] } = useQuery<any[]>({
+    queryKey: ["/api/quotations/packages"],
   });
 
   const initialDefaults = {
@@ -481,11 +489,129 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
       console.log('🔍 customMenuItems:', customMenuItems);
       console.log('🔍 selectedMenuPackages:', selectedMenuPackages);
       
-      const menuPackagesData = selectedMenuPackages.map(packageId => {
+      const menuPackagesData = await Promise.all(selectedMenuPackages.map(async (packageId) => {
         const selectedPackage = menuPackages.find(pkg => pkg.id === packageId);
-        const customData = customMenuItems[packageId];
+        let customData = customMenuItems[packageId];
         
         console.log(`🔍 Package ${packageId} customData:`, customData);
+        
+        // If customData is missing or selectedItems is empty, fetch and initialize
+        if (!customData || !customData.selectedItems || customData.selectedItems.length === 0) {
+          console.log(`🔍 Package ${packageId} has no selectedItems, fetching from API...`);
+          
+          try {
+            // Fetch menu items for this package
+            const response = await fetch('/api/menus/items');
+            if (response.ok) {
+              const allItems = await response.json();
+              const filteredItems = allItems.filter((item: any) => {
+                const itemPackageId = typeof item.packageId === 'string' ? item.packageId : item.packageId?.toString();
+                const selectedPackageId = typeof packageId === 'string' ? packageId : packageId.toString();
+                return itemPackageId === selectedPackageId;
+              });
+              
+              console.log(`🔍 Found ${filteredItems.length} items for package ${packageId}`);
+              
+              // Initialize with all package items
+              const selectedItemsWithDetails = filteredItems.map((item: any) => {
+                const quantity = (item.quantity !== undefined && item.quantity !== null) ? item.quantity : 1;
+                return {
+                  id: item.id || item._id?.toString(),
+                  name: item.name,
+                  price: item.price || 0,
+                  additionalPrice: item.additionalPrice || 0,
+                  isPackageItem: true,
+                  quantity: quantity
+                };
+              });
+              
+              customData = {
+                selectedItems: selectedItemsWithDetails,
+                customItems: [],
+                totalPackageItems: filteredItems.length,
+                excludedItemCount: 0,
+                totalDeduction: 0
+              };
+              
+              // Update state for future use
+              setCustomMenuItems(prev => ({
+                ...prev,
+                [packageId]: customData
+              }));
+            }
+          } catch (error) {
+            console.error('Error fetching menu items:', error);
+          }
+        }
+        
+        console.log(`🔍 selectedItems in customData:`, customData?.selectedItems);
+        console.log(`🔍 customItems in customData:`, customData?.customItems);
+        
+        // Ensure selectedItems and customItems are arrays, not undefined
+        let selectedItems = Array.isArray(customData?.selectedItems) ? customData.selectedItems : (customData?.selectedItems ? [customData.selectedItems] : []);
+        const customItems = Array.isArray(customData?.customItems) ? customData.customItems : (customData?.customItems ? [customData.customItems] : []);
+        
+        // Ensure all selectedItems have quantity field - if missing, fetch from API
+        if (selectedItems.length > 0) {
+          const itemsWithoutQuantity = selectedItems.filter((item: any) => item.quantity === undefined || item.quantity === null);
+          if (itemsWithoutQuantity.length > 0) {
+            console.log(`🔍 Some items missing quantity, fetching from API...`);
+            try {
+              const response = await fetch('/api/menus/items');
+              if (response.ok) {
+                const allItems = await response.json();
+                // Update items with quantity from database
+                selectedItems = selectedItems.map((item: any) => {
+                  const dbItem = allItems.find((db: any) => {
+                    const dbId = db.id || db._id?.toString();
+                    const itemId = item.id?.toString();
+                    return dbId === itemId;
+                  });
+                  
+                  if (dbItem) {
+                    const quantity = (dbItem.quantity !== undefined && dbItem.quantity !== null) ? dbItem.quantity : 1;
+                    return {
+                      ...item,
+                      quantity: quantity
+                    };
+                  }
+                  // If not found in DB, default to 1
+                  return {
+                    ...item,
+                    quantity: item.quantity !== undefined && item.quantity !== null ? item.quantity : 1
+                  };
+                });
+              }
+            } catch (error) {
+              console.error('Error fetching menu items for quantity:', error);
+              // If fetch fails, at least ensure quantity defaults to 1
+              selectedItems = selectedItems.map((item: any) => ({
+                ...item,
+                quantity: item.quantity !== undefined && item.quantity !== null ? item.quantity : 1
+              }));
+            }
+          } else {
+            // All items have quantity, but ensure it's set (default to 1 if missing)
+            selectedItems = selectedItems.map((item: any) => ({
+              ...item,
+              quantity: item.quantity !== undefined && item.quantity !== null ? item.quantity : 1
+            }));
+          }
+        }
+        
+        // Final validation - if still empty, show error
+        if (selectedItems.length === 0) {
+          console.error(`❌ Package ${packageId} has no selectedItems after all attempts!`);
+          toast({
+            title: "Error",
+            description: `No menu items found for ${selectedPackage?.name || 'selected package'}. Please select menu items before saving.`,
+            variant: "destructive",
+          });
+          throw new Error(`No menu items for package ${packageId}`);
+        }
+        
+        console.log(`🔍 Final selectedItems with quantities:`, selectedItems.map((item: any) => ({ name: item.name, quantity: item.quantity })));
+        console.log(`🔍 Final customItems:`, customItems);
         
         const result = {
           id: selectedPackage?.id,
@@ -493,17 +619,18 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
           type: selectedPackage?.type || 'non-veg',
           price: selectedPackage?.price || 0,
           gst: selectedPackage?.gst || 18,
-          selectedItems: customData?.selectedItems || [],
-          customItems: customData?.customItems || [],
-          totalPackageItems: customData?.totalPackageItems || 0,
+          selectedItems: selectedItems,
+          customItems: customItems,
+          totalPackageItems: customData?.totalPackageItems || selectedItems.length || 0,
           excludedItemCount: customData?.excludedItemCount || 0,
           totalDeduction: customData?.totalDeduction || 0
         };
         
+        console.log(`🔍 Final result for package ${packageId}:`, JSON.stringify(result, null, 2));
         return result;
-      });
+      }));
       
-      console.log('🔍 menuPackagesData:', menuPackagesData);
+      console.log('🔍 menuPackagesData:', JSON.stringify(menuPackagesData, null, 2));
 
       // Use totals already calculated by useEffect (which includes discount and GST)
       const formData = {
@@ -615,11 +742,189 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
     setEditingMenuPackage(null);
   };
 
-  const handleMenuSelectionSave = (selectedPackage: string, customMenuItems: any) => {
-    console.log('🔍 handleMenuSelectionSave called with:', { selectedPackage, customMenuItems });
+  const handleMenuSelectionSave = (selectedPackage: string, customMenuItemsData: any) => {
+    console.log('🔍 handleMenuSelectionSave called with:', { selectedPackage, customMenuItemsData });
+    console.log('🔍 customMenuItemsData.selectedItems:', customMenuItemsData?.selectedItems);
+    console.log('🔍 selectedItems count:', customMenuItemsData?.selectedItems?.length || 0);
+    
+    // Ensure selectedItems and customItems are arrays
+    const safeData = {
+      ...customMenuItemsData,
+      selectedItems: Array.isArray(customMenuItemsData?.selectedItems) ? customMenuItemsData.selectedItems : (customMenuItemsData?.selectedItems ? [customMenuItemsData.selectedItems] : []),
+      customItems: Array.isArray(customMenuItemsData?.customItems) ? customMenuItemsData.customItems : (customMenuItemsData?.customItems ? [customMenuItemsData.customItems] : []),
+    };
+    
+    console.log('🔍 Safe data being stored:', {
+      selectedItemsCount: safeData.selectedItems.length,
+      customItemsCount: safeData.customItems.length,
+      selectedItems: safeData.selectedItems
+    });
+    
     setSelectedMenuPackages([selectedPackage]);
-    setCustomMenuItems({ [selectedPackage]: customMenuItems });
+    setCustomMenuItems({ [selectedPackage]: safeData });
     setShowMenuSelectionFlow(false);
+    
+    toast({
+      title: "Success",
+      description: `Menu package configured with ${safeData.selectedItems.length} items`,
+    });
+  };
+
+  // Load quotation package into form
+  const handleLoadPackage = (packageId: string) => {
+    const selectedPackage = quotationPackages.find(p => p.id === packageId);
+    if (!selectedPackage) {
+      toast({
+        title: "Error",
+        description: "Package not found",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    // Get event date from form or enquiry
+    const formEventDate = form.getValues('eventDate');
+    let defaultDate = "";
+    if (formEventDate) {
+      try {
+        const date = new Date(formEventDate);
+        const day = String(date.getDate()).padStart(2, '0');
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const year = date.getFullYear();
+        defaultDate = `${day}/${month}/${year}`;
+      } catch {
+        defaultDate = formEventDate;
+      }
+    } else {
+      const today = new Date();
+      const day = String(today.getDate()).padStart(2, '0');
+      const month = String(today.getMonth() + 1).padStart(2, '0');
+      const year = today.getFullYear();
+      defaultDate = `${day}/${month}/${year}`;
+    }
+
+    // Load venue rental items - add eventDate if missing
+    const venueItems = (selectedPackage.venueRentalItems || []).map(item => ({
+      ...item,
+      eventDate: item.eventDate || defaultDate, // Use package eventDate or default to enquiry date
+    }));
+    form.setValue('venueRentalItems', venueItems);
+    
+    // Load room packages
+    const roomPackagesData = (selectedPackage.roomPackages || []).map(room => ({
+      ...room,
+      // Ensure all required fields are present
+      category: room.category || "",
+      rate: room.rate || 0,
+      numberOfRooms: room.numberOfRooms ?? null,
+      totalOccupancy: room.totalOccupancy ?? null,
+    }));
+    form.setValue('roomPackages', roomPackagesData);
+    
+    // Load menu packages
+    if (selectedPackage.menuPackages && selectedPackage.menuPackages.length > 0) {
+      const packageIds = selectedPackage.menuPackages.map(p => p.id).filter(Boolean) as string[];
+      setSelectedMenuPackages(packageIds);
+      
+      // Set custom menu items if any
+      const menuItemsMap: Record<string, any> = {};
+      selectedPackage.menuPackages.forEach(pkg => {
+        if (pkg.id && (pkg.selectedItems || pkg.customItems)) {
+          menuItemsMap[pkg.id] = {
+            selectedItems: pkg.selectedItems || [],
+            customItems: pkg.customItems || [],
+          };
+        }
+      });
+      setCustomMenuItems(menuItemsMap);
+    } else {
+      setSelectedMenuPackages([]);
+      setCustomMenuItems({});
+    }
+    
+    // Load settings
+    if (selectedPackage.includeGST !== undefined) {
+      form.setValue('includeGST', selectedPackage.includeGST);
+    }
+    if (selectedPackage.checkInTime) {
+      form.setValue('checkInTime', selectedPackage.checkInTime);
+    }
+    if (selectedPackage.checkOutTime) {
+      form.setValue('checkOutTime', selectedPackage.checkOutTime);
+    }
+
+    toast({ 
+      title: "Package Loaded", 
+      description: `Loaded quotation package: ${selectedPackage.name}. You can now edit and create the quotation.` 
+    });
+  };
+
+  // Save current quotation as package
+  const savePackageMutation = useMutation({
+    mutationFn: async (data: { name: string; description?: string }) => {
+      const currentFormData = form.getValues();
+      
+      const packageData = {
+        name: data.name,
+        description: data.description || "",
+        venueRentalItems: currentFormData.venueRentalItems || [],
+        roomPackages: currentFormData.roomPackages || [],
+        menuPackages: selectedMenuPackages.map(packageId => {
+          const selectedPackage = menuPackages.find(pkg => pkg.id === packageId);
+          const customData = customMenuItems[packageId];
+          
+          return {
+            id: selectedPackage?.id,
+            name: selectedPackage?.name,
+            type: selectedPackage?.type || 'non-veg',
+            price: selectedPackage?.price || 0,
+            gst: selectedPackage?.gst || 18,
+            selectedItems: customData?.selectedItems || [],
+            customItems: customData?.customItems || [],
+          };
+        }),
+        includeGST: currentFormData.includeGST || false,
+        checkInTime: currentFormData.checkInTime || "14:00",
+        checkOutTime: currentFormData.checkOutTime || "11:00",
+        isActive: true,
+      };
+
+      const response = await apiRequest("POST", "/api/quotations/packages", packageData);
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || "Failed to save package");
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/quotations/packages"] });
+      toast({ title: "Success", description: "Quotation package saved successfully" });
+      setShowSavePackageDialog(false);
+      setPackageName("");
+      setPackageDescription("");
+    },
+    onError: (error: any) => {
+      toast({ 
+        title: "Error", 
+        description: error.message || "Failed to save quotation package", 
+        variant: "destructive" 
+      });
+    },
+  });
+
+  const handleSaveAsPackage = () => {
+    if (!packageName.trim()) {
+      toast({ 
+        title: "Error", 
+        description: "Package name is required", 
+        variant: "destructive" 
+      });
+      return;
+    }
+    savePackageMutation.mutate({ 
+      name: packageName, 
+      description: packageDescription 
+    });
   };
 
   const handleSendEmail = async (quotation: Quotation) => {
@@ -694,6 +999,47 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
               <FileText className="w-5 h-5" />
               {editingQuotation ? "Edit Quotation" : "Create New Quotation"}
             </DialogTitle>
+            <div className="flex gap-2">
+              <Select
+                value=""
+                onValueChange={(value) => {
+                  if (value) {
+                    handleLoadPackage(value);
+                    // Reset the select to show placeholder again
+                    setTimeout(() => {
+                      const select = document.querySelector('[data-placeholder="Load Package"]') as any;
+                      if (select) select.value = "";
+                    }, 100);
+                  }
+                }}
+              >
+                <SelectTrigger className="w-[220px]">
+                  <SelectValue placeholder="Load Saved Package" />
+                </SelectTrigger>
+                <SelectContent>
+                  {quotationPackages.length === 0 ? (
+                    <div className="p-2 text-sm text-muted-foreground">
+                      No packages available
+                    </div>
+                  ) : (
+                    quotationPackages.map((pkg) => (
+                      <SelectItem key={pkg.id} value={pkg.id!}>
+                        <Package className="w-4 h-4 mr-2 inline" />
+                        {pkg.name}
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setShowSavePackageDialog(true)}
+              >
+                <Save className="w-4 h-4 mr-2" />
+                Save as Package
+              </Button>
+            </div>
           </div>
         </DialogHeader>
 
@@ -1694,6 +2040,58 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
           onSendEmail={handleSendEmail}
         />
       )}
+
+      {/* Save Package Dialog */}
+      <Dialog open={showSavePackageDialog} onOpenChange={setShowSavePackageDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Save Quotation as Package</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div>
+              <Label htmlFor="package-name">Package Name *</Label>
+              <Input
+                id="package-name"
+                placeholder="e.g., Wedding Package - Standard"
+                value={packageName}
+                onChange={(e) => setPackageName(e.target.value)}
+                className="mt-2"
+              />
+            </div>
+            <div>
+              <Label htmlFor="package-description">Description (Optional)</Label>
+              <Textarea
+                id="package-description"
+                placeholder="Optional description for this package"
+                value={packageDescription}
+                onChange={(e) => setPackageDescription(e.target.value)}
+                className="mt-2"
+                rows={3}
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setShowSavePackageDialog(false);
+                  setPackageName("");
+                  setPackageDescription("");
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={handleSaveAsPackage}
+                disabled={savePackageMutation.isPending || !packageName.trim()}
+              >
+                {savePackageMutation.isPending ? "Saving..." : "Save Package"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </Dialog>
   );
 }

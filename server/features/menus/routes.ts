@@ -4,20 +4,6 @@ import { ObjectId } from 'mongodb';
 import { storage } from '../../storage';
 import { insertMenuPackageSchema, insertMenuItemSchema, insertAdditionalItemSchema } from '@shared/schema-mongodb';
 
-// Helper function to recalculate package price based on sum of item prices
-async function recalculatePackagePrice(packageId: string) {
-  try {
-    const items = await storage.getMenuItemsByPackage(packageId);
-    const totalPrice = items.reduce((sum, item) => sum + (item.price || 0), 0);
-    await storage.updateMenuPackage(packageId, { price: totalPrice });
-    console.log(`✅ Package ${packageId} price updated to ₹${totalPrice} (${items.length} items)`);
-    return totalPrice;
-  } catch (error) {
-    console.error('❌ Error recalculating package price:', error);
-    return 0;
-  }
-}
-
 const router = Router();
 
 // ============================================================================
@@ -51,8 +37,7 @@ router.get('/packages/:id', async (req, res) => {
 router.post('/packages', async (req, res) => {
   try {
     const validatedData = insertMenuPackageSchema.parse(req.body);
-    // Set initial price to 0 - will be calculated when items are added
-    validatedData.price = 0;
+    // Price is now manually set by the user
     const package_ = await storage.createMenuPackage(validatedData);
     res.status(201).json(package_);
   } catch (error) {
@@ -99,18 +84,6 @@ router.delete('/packages/:id', async (req, res) => {
   }
 });
 
-// Recalculate package price manually (useful for fixing inconsistencies)
-router.post('/packages/:id/recalculate-price', async (req, res) => {
-  try {
-    const updatedPrice = await recalculatePackagePrice(req.params.id);
-    res.json({ 
-      message: 'Package price recalculated successfully', 
-      price: updatedPrice 
-    });
-  } catch (error) {
-    res.status(500).json({ message: 'Failed to recalculate package price' });
-  }
-});
 
 // ============================================================================
 // MENU ITEMS ROUTES
@@ -168,12 +141,6 @@ router.post('/items', async (req, res) => {
       }
     }
     const item = await storage.createMenuItem(validatedData);
-    
-    // Recalculate package price after adding item
-    if (item.packageId) {
-      await recalculatePackagePrice(item.packageId.toString());
-    }
-    
     res.status(201).json(item);
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -209,12 +176,6 @@ router.patch('/items/:id', async (req, res) => {
     if (!item) {
       return res.status(404).json({ message: 'Menu item not found' });
     }
-    
-    // Recalculate package price after updating item
-    if (item.packageId) {
-      await recalculatePackagePrice(item.packageId.toString());
-    }
-    
     res.json(item);
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -230,22 +191,10 @@ router.patch('/items/:id', async (req, res) => {
 // Delete menu item
 router.delete('/items/:id', async (req, res) => {
   try {
-    // Get the item first to know which package to recalculate
-    const item = await storage.getMenuItemById(req.params.id);
-    if (!item) {
-      return res.status(404).json({ message: 'Menu item not found' });
-    }
-    
     const success = await storage.deleteMenuItem(req.params.id);
     if (!success) {
       return res.status(404).json({ message: 'Menu item not found' });
     }
-    
-    // Recalculate package price after deleting item
-    if (item.packageId) {
-      await recalculatePackagePrice(item.packageId);
-    }
-    
     res.json({ message: 'Menu item deleted successfully' });
   } catch (error) {
     res.status(500).json({ message: 'Failed to delete menu item' });
