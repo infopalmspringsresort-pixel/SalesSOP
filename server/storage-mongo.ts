@@ -2255,8 +2255,20 @@ export class MongoStorage implements IStorage {
 
   async getQuotationsByEnquiry(enquiryId: string): Promise<any[]> {
     const collection = await getCollection('quotations');
-    const quotations = await collection.find({ enquiryId: this.toObjectId(enquiryId) }).toArray();
-    return quotations.map(quotation => this.toApiFormat(quotation));
+    const quotations = await collection
+      .find({ enquiryId: this.toObjectId(enquiryId) })
+      .sort({ createdAt: 1 }) // Sort by creation date ascending
+      .toArray();
+    
+    // If quotations don't have version numbers, assign them based on creation order
+    const quotationsWithVersions = quotations.map((quotation, index) => {
+      if (!quotation.version) {
+        return { ...quotation, version: index + 1 };
+      }
+      return quotation;
+    });
+    
+    return quotationsWithVersions.map(quotation => this.toApiFormat(quotation));
   }
 
   async getQuotationsExceededDiscount(): Promise<any[]> {
@@ -2295,6 +2307,16 @@ export class MongoStorage implements IStorage {
     // Generate quotation number
     const quotationNumber = await this.getNextQuotationNumber();
     
+    // Determine version and parent quotation
+    let version: number;
+    let parentQuotationId = quotation.parentQuotationId ? this.toObjectId(quotation.parentQuotationId) : undefined;
+    
+    // Always get next version for this enquiry (whether new or revision)
+    // This ensures proper sequential versioning
+    version = await this.getNextQuotationVersion(quotation.enquiryId);
+    
+    console.log(`📝 Assigning version ${version} to quotation for enquiry ${quotation.enquiryId}`);
+    
     // Log menuPackages to ensure arrays are preserved
     if (quotation.menuPackages) {
       console.log('📦 Storage: menuPackages before save:', JSON.stringify(
@@ -2314,6 +2336,8 @@ export class MongoStorage implements IStorage {
       enquiryId: this.toObjectId(quotation.enquiryId),
       createdBy: this.toObjectId(quotation.createdBy),
       quotationNumber,
+      version,
+      parentQuotationId,
       // Explicitly preserve menuPackages structure
       menuPackages: quotation.menuPackages ? quotation.menuPackages.map((pkg: any) => ({
         ...pkg,
@@ -2339,8 +2363,14 @@ export class MongoStorage implements IStorage {
     const result = await collection.insertOne(doc);
     const savedDoc = { ...doc, _id: result.insertedId };
     
+    // Log version assignment
+    console.log(`✅ Saved quotation ${quotationNumber} with version ${version} for enquiry ${quotation.enquiryId}`);
+    
     // Log after insert to verify data was saved
     const savedQuotation = await collection.findOne({ _id: result.insertedId });
+    if (savedQuotation) {
+      console.log(`✅ Verified saved quotation version: ${savedQuotation.version}`);
+    }
     if (savedQuotation?.menuPackages) {
       console.log('✅ Storage: menuPackages after save:', JSON.stringify(
         savedQuotation.menuPackages.map((pkg: any) => ({
@@ -2422,6 +2452,45 @@ export class MongoStorage implements IStorage {
     return `QTN-${year}-${month}-${day}-${sequenceStr}`;
   }
 
+  // Helper method to get next version number for an enquiry
+  async getNextQuotationVersion(enquiryId: string): Promise<number> {
+    const collection = await getCollection('quotations');
+    const enquiryObjectId = this.toObjectId(enquiryId);
+    
+    // Get all quotations for this enquiry, sorted by creation date
+    const quotations = await collection
+      .find({ enquiryId: enquiryObjectId })
+      .sort({ createdAt: 1 })
+      .toArray();
+    
+    if (quotations.length === 0) {
+      return 1; // First quotation for this enquiry
+    }
+    
+    // Find the maximum version number from existing quotations
+    let maxVersion = 0;
+    let hasVersionNumbers = false;
+    
+    for (const quotation of quotations) {
+      // Check if version exists and is a valid number
+      if (quotation.version !== undefined && quotation.version !== null && typeof quotation.version === 'number') {
+        hasVersionNumbers = true;
+        if (quotation.version > maxVersion) {
+          maxVersion = quotation.version;
+        }
+      }
+    }
+    
+    // If quotations have version numbers, increment the max
+    // Otherwise, assign based on count (existing quotations get assigned versions 1, 2, 3...)
+    if (hasVersionNumbers) {
+      return maxVersion + 1;
+    } else {
+      // No version numbers exist - next version should be count + 1
+      return quotations.length + 1;
+    }
+  }
+
   // ============================================================================
   // QUOTATION PACKAGE OPERATIONS
   // ============================================================================
@@ -2466,3 +2535,4 @@ export class MongoStorage implements IStorage {
   }
 
 }
+

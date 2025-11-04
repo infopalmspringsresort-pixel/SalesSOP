@@ -98,76 +98,9 @@ class EmailService {
 
   async sendQuotationEmail(quotation: any, recipientEmail: string, subject?: string, message?: string): Promise<boolean> {
     try {
-      // Generate PDF using dynamic import to avoid module issues
-      const jsPDF = (await import('jspdf')).jsPDF;
-      
-      // Create a simple PDF
-      const doc = new jsPDF();
-      const pageWidth = doc.internal.pageSize.getWidth();
-      let currentY = 30;
-
-      // Header
-      doc.setFontSize(24).setFont(undefined, 'bold').setTextColor(41, 128, 185);
-      doc.text('QUOTATION', 20, 25);
-      
-      doc.setFontSize(12).setFont(undefined, 'normal').setTextColor(52, 73, 94);
-      doc.text('Palm Springs Resort', 20, 40);
-      doc.text('Luxury Hotel & Banquet', 20, 47);
-      
-      currentY = 60;
-      
-      // Quotation Details
-      doc.setFontSize(14).setFont(undefined, 'bold').setTextColor(41, 128, 185);
-      doc.text('Quotation Details', 20, currentY);
-      currentY += 15;
-      
-      doc.setFontSize(11).setFont(undefined, 'normal').setTextColor(52, 73, 94);
-      doc.text(`Quotation Number: ${quotation.quotationNumber}`, 20, currentY);
-      currentY += 8;
-      doc.text(`Date: ${new Date(quotation.createdAt).toLocaleDateString()}`, 20, currentY);
-      currentY += 8;
-      doc.text(`Client: ${quotation.clientName}`, 20, currentY);
-      currentY += 8;
-      doc.text(`Email: ${quotation.clientEmail}`, 20, currentY);
-      currentY += 8;
-      doc.text(`Phone: ${quotation.clientPhone}`, 20, currentY);
-      currentY += 15;
-      
-      // Cost Summary
-      doc.setFontSize(14).setFont(undefined, 'bold').setTextColor(41, 128, 185);
-      doc.text('Cost Summary', 20, currentY);
-      currentY += 15;
-      
-      doc.setFontSize(11).setFont(undefined, 'normal').setTextColor(52, 73, 94);
-      if (quotation.venueRentalTotal > 0) {
-        doc.text(`Venue Rental: ₹${quotation.venueRentalTotal.toLocaleString()}`, 20, currentY);
-        currentY += 8;
-      }
-      if (quotation.roomQuotationTotal > 0) {
-        doc.text(`Room Quotation: ₹${quotation.roomQuotationTotal.toLocaleString()}`, 20, currentY);
-        currentY += 8;
-      }
-      if (quotation.menuTotal > 0) {
-        doc.text(`Menu Packages: ₹${quotation.menuTotal.toLocaleString()}`, 20, currentY);
-        currentY += 8;
-      }
-      
-      currentY += 5;
-      doc.setFontSize(12).setFont(undefined, 'bold').setTextColor(46, 204, 113);
-      doc.text(`Grand Total: ₹${quotation.grandTotal.toLocaleString()}`, 20, currentY);
-      
-      if (quotation.finalTotal && quotation.finalTotal !== quotation.grandTotal) {
-        currentY += 8;
-        doc.setFontSize(12).setFont(undefined, 'bold').setTextColor(231, 76, 60);
-        doc.text(`Final Total (After Discount): ₹${quotation.finalTotal.toLocaleString()}`, 20, currentY);
-      }
-      
-      currentY += 20;
-      doc.setFontSize(10).setFont(undefined, 'normal').setTextColor(52, 73, 94);
-      doc.text('Thank you for your business!', 20, currentY);
-      doc.text('This quotation is valid until the mentioned date.', 20, currentY + 8);
-      
-      const pdfBuffer = Buffer.from(doc.output('arraybuffer'));
+      // Generate PDF using Puppeteer (same as download)
+      const { generateQuotationPDF } = await import('./puppeteer-pdf');
+      const pdfBuffer = await generateQuotationPDF(quotation);
       
       // Create email content
       const emailSubject = subject || `Quotation ${quotation.quotationNumber}`;

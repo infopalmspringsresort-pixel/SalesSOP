@@ -190,7 +190,22 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
         venueRentalItems: editingQuotation.venueRentalItems?.map(item => ({
           ...item,
           eventDate: convertToDDMMYYYY(item.eventDate),
+          // Ensure all required fields are strings/numbers, not objects
+          venue: typeof item.venue === 'string' ? item.venue : (item.venue?.name || item.venue || ''),
+          venueSpace: typeof item.venueSpace === 'string' ? item.venueSpace : (item.venueSpace || ''),
+          session: typeof item.session === 'string' ? item.session : (item.session || ''),
+          sessionRate: typeof item.sessionRate === 'number' ? item.sessionRate : (parseFloat(item.sessionRate) || 0),
         })) || [],
+        roomPackages: editingQuotation.roomPackages?.map(room => ({
+          ...room,
+          // Ensure all required fields are properly typed
+          category: typeof room.category === 'string' ? room.category : (room.category?.name || room.category || ''),
+          rate: typeof room.rate === 'number' ? room.rate : (parseFloat(room.rate) || 0),
+          numberOfRooms: typeof room.numberOfRooms === 'number' ? room.numberOfRooms : (parseInt(room.numberOfRooms) || null),
+          totalOccupancy: typeof room.totalOccupancy === 'number' ? room.totalOccupancy : (parseInt(room.totalOccupancy) || null),
+        })) || [],
+        // Ensure parentQuotationId is undefined, not null
+        parentQuotationId: editingQuotation.parentQuotationId || undefined,
       };
       
       form.reset(convertedQuotation);
@@ -429,8 +444,43 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
   const createQuotationMutation = useMutation({
     mutationFn: async (data: z.infer<typeof formSchema>) => {
       console.log('🚀 Making POST request to /api/quotations');
-      console.log('🚀 Request data:', data);
-      const response = await apiRequest("POST", "/api/quotations", data);
+      
+      // Clean up the data - remove null/undefined values and ensure proper types
+      const cleanedData = { ...data };
+      
+      // Remove parentQuotationId if it's null or undefined
+      if (editingQuotation && editingQuotation.id) {
+        cleanedData.parentQuotationId = editingQuotation.id;
+      } else {
+        delete cleanedData.parentQuotationId;
+      }
+      
+      // Ensure venueRentalItems have proper types
+      if (cleanedData.venueRentalItems) {
+        cleanedData.venueRentalItems = cleanedData.venueRentalItems.map((item: any) => ({
+          eventDate: item.eventDate || '',
+          venue: typeof item.venue === 'string' ? item.venue : (item.venue?.name || item.venue || ''),
+          venueSpace: typeof item.venueSpace === 'string' ? item.venueSpace : (item.venueSpace || ''),
+          session: typeof item.session === 'string' ? item.session : (item.session || ''),
+          sessionRate: typeof item.sessionRate === 'number' ? item.sessionRate : (parseFloat(item.sessionRate) || 0),
+        }));
+      }
+      
+      // Ensure roomPackages have proper types
+      if (cleanedData.roomPackages) {
+        cleanedData.roomPackages = cleanedData.roomPackages.map((room: any) => ({
+          category: typeof room.category === 'string' ? room.category : (room.category?.name || room.category || ''),
+          rate: typeof room.rate === 'number' ? room.rate : (parseFloat(room.rate) || 0),
+          numberOfRooms: typeof room.numberOfRooms === 'number' ? room.numberOfRooms : (room.numberOfRooms ? parseInt(room.numberOfRooms) : null),
+          totalOccupancy: typeof room.totalOccupancy === 'number' ? room.totalOccupancy : (room.totalOccupancy ? parseInt(room.totalOccupancy) : null),
+          defaultOccupancy: room.defaultOccupancy || 2,
+          maxOccupancy: room.maxOccupancy || 2,
+          extraPersonRate: room.extraPersonRate || 0,
+        }));
+      }
+      
+      console.log('🚀 Request data:', cleanedData);
+      const response = await apiRequest("POST", "/api/quotations", cleanedData);
       console.log('🚀 Response status:', response.status);
       if (!response.ok) {
         const error = await response.json();
@@ -442,8 +492,19 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
       return result;
     },
     onSuccess: (response) => {
+      // Invalidate all quotation-related queries to refresh the UI
       queryClient.invalidateQueries({ queryKey: ["/api/quotations"] });
-      toast({ title: "Success", description: "Quotation created successfully" });
+      queryClient.invalidateQueries({ queryKey: [`/api/quotations/activities/${enquiry.id}`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/quotations?enquiryId=${enquiry.id}`] });
+      
+      // Force immediate refetch
+      queryClient.refetchQueries({ queryKey: ["/api/quotations"] });
+      queryClient.refetchQueries({ queryKey: [`/api/quotations/activities/${enquiry.id}`] });
+      
+      const message = editingQuotation 
+        ? `Quotation Version ${response.version} created successfully` 
+        : "Quotation created successfully";
+      toast({ title: "Success", description: message });
       
       // Store the created quotation and show preview
       setCreatedQuotation(response);
@@ -458,28 +519,6 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
     },
   });
 
-  const updateQuotationMutation = useMutation({
-    mutationFn: async (data: z.infer<typeof formSchema>) => {
-      const response = await apiRequest("PATCH", `/api/quotations/${editingQuotation!.id}`, data);
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || "Failed to update quotation");
-      }
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/quotations"] });
-      toast({ title: "Success", description: "Quotation updated successfully" });
-      onOpenChange(false);
-    },
-    onError: (error: any) => {
-      toast({ 
-        title: "Error", 
-        description: error.message || "Failed to update quotation", 
-        variant: "destructive" 
-      });
-    },
-  });
 
   const onSubmit = async (data: z.infer<typeof formSchema>) => {
     console.log('🚀 Form onSubmit called');
@@ -655,11 +694,8 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
         finalTotal: formData.finalTotal
       });
       
-      if (editingQuotation) {
-        await updateQuotationMutation.mutateAsync(formData);
-      } else {
-        await createQuotationMutation.mutateAsync(formData);
-      }
+      // Always create new quotation (if editing, it will be a new version)
+      await createQuotationMutation.mutateAsync(formData);
     } catch (error) {
       console.error('Form submission error:', error);
     } finally {
@@ -803,23 +839,68 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
       defaultDate = `${day}/${month}/${year}`;
     }
 
-    // Load venue rental items - add eventDate if missing
-    const venueItems = (selectedPackage.venueRentalItems || []).map(item => ({
-      ...item,
-      eventDate: item.eventDate || defaultDate, // Use package eventDate or default to enquiry date
-    }));
-    form.setValue('venueRentalItems', venueItems);
+    // Load venue rental items - ensure proper data structure and types
+    const venueItems = (selectedPackage.venueRentalItems || []).map(item => {
+      // Ensure all fields are properly typed (handle cases where saved data might be objects)
+      const venueValue = typeof item.venue === 'string' ? item.venue : (item.venue?.name || item.venue || '');
+      const venueSpaceValue = typeof item.venueSpace === 'string' ? item.venueSpace : (item.venueSpace || '');
+      const sessionValue = typeof item.session === 'string' ? item.session : (item.session || '');
+      const sessionRateValue = typeof item.sessionRate === 'number' ? item.sessionRate : (parseFloat(item.sessionRate) || 0);
+      
+      return {
+        eventDate: item.eventDate || defaultDate,
+        venue: venueValue,
+        venueSpace: venueSpaceValue,
+        session: sessionValue,
+        sessionRate: sessionRateValue,
+      };
+    });
+    form.setValue('venueRentalItems', venueItems, { shouldValidate: true, shouldDirty: true });
     
-    // Load room packages
-    const roomPackagesData = (selectedPackage.roomPackages || []).map(room => ({
-      ...room,
-      // Ensure all required fields are present
-      category: room.category || "",
-      rate: room.rate || 0,
-      numberOfRooms: room.numberOfRooms ?? null,
-      totalOccupancy: room.totalOccupancy ?? null,
-    }));
-    form.setValue('roomPackages', roomPackagesData);
+    // Load room packages - ensure proper data structure and types
+    const roomPackagesData = (selectedPackage.roomPackages || []).map(room => {
+      // Ensure all fields are properly typed (handle cases where saved data might be objects)
+      const categoryValue = typeof room.category === 'string' ? room.category : (room.category?.name || room.category || '');
+      const rateValue = typeof room.rate === 'number' ? room.rate : (parseFloat(room.rate) || 0);
+      const numberOfRoomsValue = typeof room.numberOfRooms === 'number' ? room.numberOfRooms : (room.numberOfRooms ? parseInt(room.numberOfRooms) : null);
+      const totalOccupancyValue = typeof room.totalOccupancy === 'number' ? room.totalOccupancy : (room.totalOccupancy ? parseInt(room.totalOccupancy) : null);
+      
+      return {
+        category: categoryValue,
+        rate: rateValue,
+        numberOfRooms: numberOfRoomsValue,
+        totalOccupancy: totalOccupancyValue,
+        defaultOccupancy: room.defaultOccupancy || 2,
+        maxOccupancy: room.maxOccupancy || 2,
+        extraPersonRate: room.extraPersonRate || 0,
+      };
+    });
+    form.setValue('roomPackages', roomPackagesData, { shouldValidate: true, shouldDirty: true });
+    
+    // Clear parentQuotationId when loading a package (since we're starting fresh)
+    form.setValue('parentQuotationId', undefined, { shouldValidate: false });
+    
+    // Force form to update and trigger recalculation
+    // Use setTimeout to ensure React Hook Form processes the changes and useWatch hooks detect them
+    setTimeout(() => {
+      // Trigger validation to ensure form state is updated
+      form.trigger(['venueRentalItems', 'roomPackages']);
+      
+      // Force recalculation by creating new array references
+      // This ensures useWatch hooks detect the change
+      const currentVenueItems = form.getValues('venueRentalItems');
+      const currentRoomPackages = form.getValues('roomPackages');
+      
+      if (currentVenueItems && currentVenueItems.length > 0) {
+        form.setValue('venueRentalItems', [...currentVenueItems], { shouldValidate: false, shouldDirty: false });
+      }
+      if (currentRoomPackages && currentRoomPackages.length > 0) {
+        form.setValue('roomPackages', [...currentRoomPackages], { shouldValidate: false, shouldDirty: false });
+      }
+      
+      // Also explicitly trigger a form state update to ensure useWatch hooks fire
+      form.trigger();
+    }, 100); // Small delay to ensure React Hook Form has processed the initial setValue calls
     
     // Load menu packages
     if (selectedPackage.menuPackages && selectedPackage.menuPackages.length > 0) {
@@ -997,7 +1078,7 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
           <div className="flex items-center justify-between">
             <DialogTitle className="flex items-center gap-2">
               <FileText className="w-5 h-5" />
-              {editingQuotation ? "Edit Quotation" : "Create New Quotation"}
+              {editingQuotation ? `Edit Quotation (Version ${editingQuotation.version || 1})` : "Create New Quotation"}
             </DialogTitle>
             <div className="flex gap-2">
               <Select
@@ -2007,7 +2088,7 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
                 type="submit" 
                 disabled={isSubmitting}
               >
-                {isSubmitting ? "Saving..." : editingQuotation ? "Update Quotation" : "Create Quotation"}
+                {isSubmitting ? "Saving..." : editingQuotation ? "Create New Version" : "Create Quotation"}
               </Button>
             </div>
           </form>

@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Button } from "@/components/ui/button";
 import { 
   FileText, 
   Mail, 
@@ -12,12 +13,16 @@ import {
   XCircle, 
   AlertCircle,
   User,
-  Calendar
+  Calendar,
+  Edit
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
+import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 
 interface QuotationHistoryProps {
   enquiryId: string;
+  onEditQuotation?: (quotation: any) => void;
 }
 
 interface QuotationActivity {
@@ -44,10 +49,24 @@ interface QuotationActivity {
   };
 }
 
-export default function QuotationHistory({ enquiryId }: QuotationHistoryProps) {
-  const { data: activities = [], isLoading } = useQuery<QuotationActivity[]>({
+export default function QuotationHistory({ enquiryId, onEditQuotation }: QuotationHistoryProps) {
+  const { toast } = useToast();
+  const { data: activities = [], isLoading: activitiesLoading } = useQuery<QuotationActivity[]>({
     queryKey: [`/api/quotations/activities/${enquiryId}`],
   });
+
+  // Fetch quotations for this enquiry
+  const { data: quotations = [], isLoading: quotationsLoading } = useQuery<any[]>({
+    queryKey: [`/api/quotations?enquiryId=${enquiryId}`],
+    queryFn: async () => {
+      const response = await apiRequest("GET", `/api/quotations`);
+      if (!response.ok) return [];
+      const allQuotations = await response.json();
+      return allQuotations.filter((q: any) => q.enquiryId === enquiryId);
+    },
+  });
+
+  const isLoading = activitiesLoading || quotationsLoading;
 
   const getActivityIcon = (type: string) => {
     switch (type) {
@@ -189,21 +208,48 @@ export default function QuotationHistory({ enquiryId }: QuotationHistoryProps) {
     );
   }
 
-  if (activities.length === 0) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Quotation History</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="text-center py-8 text-muted-foreground">
-            <FileText className="w-12 h-12 mx-auto mb-4 text-muted-foreground/50" />
-            <p>No quotation activities found</p>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
+  // Merge quotations and activities into a unified timeline
+  // Sort by timestamp (newest first)
+  const timelineItems: Array<{
+    type: 'quotation' | 'activity';
+    id: string;
+    timestamp: Date;
+    data: any;
+  }> = [];
+
+  // Collect quotation IDs to avoid duplicate "created" activities
+  const quotationIds = new Set<string>();
+  quotations.forEach((quotation) => {
+    if (quotation.createdAt) {
+      const qId = quotation.id || quotation._id || quotation.quotationNumber;
+      if (qId) quotationIds.add(String(qId));
+      
+      timelineItems.push({
+        type: 'quotation',
+        id: qId || `q-${Date.now()}`,
+        timestamp: new Date(quotation.createdAt),
+        data: quotation,
+      });
+    }
+  });
+
+  // Add activities to timeline, but skip "created" activities that duplicate quotation entries
+  activities.forEach((activity) => {
+    // Skip "created" activities as they're already represented by quotation cards
+    if (activity.type === 'created') {
+      return;
+    }
+    
+    timelineItems.push({
+      type: 'activity',
+      id: activity.id,
+      timestamp: new Date(activity.timestamp),
+      data: activity,
+    });
+  });
+
+  // Sort by timestamp (newest first)
+  timelineItems.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
 
   return (
     <Card>
@@ -214,46 +260,109 @@ export default function QuotationHistory({ enquiryId }: QuotationHistoryProps) {
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="space-y-4">
-          {activities.map((activity, index) => (
-            <div key={activity.id}>
-              <div className="flex items-start gap-3">
-                <div className="flex-shrink-0 mt-1">
-                  {getActivityIcon(activity.type)}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between mb-1">
-                    <h4 className="font-medium text-sm">
-                      {getActivityTitle(activity.type)}
-                    </h4>
-                    <div className="flex items-center gap-2">
-                      <Badge variant={getActivityBadgeVariant(activity.type)} className="text-xs">
-                        {activity.type.replace('_', ' ').toUpperCase()}
-                      </Badge>
-                      <span className="text-xs text-muted-foreground">
-                        {formatDistanceToNow(new Date(activity.timestamp), { addSuffix: true })}
-                      </span>
+        {isLoading ? (
+          <div className="text-center py-8 text-muted-foreground">
+            <Clock className="w-8 h-8 mx-auto mb-4 animate-spin" />
+            <p>Loading quotation history...</p>
+          </div>
+        ) : timelineItems.length === 0 ? (
+          <div className="text-center py-8 text-muted-foreground">
+            <FileText className="w-12 h-12 mx-auto mb-4 text-muted-foreground/50" />
+            <p>No quotations or activities found</p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {timelineItems.map((item, index) => {
+              if (item.type === 'quotation') {
+                const quotation = item.data;
+                return (
+                  <div key={item.id}>
+                    <div className="border-l-4 border-l-blue-500 bg-blue-50/30 p-4 rounded-r-lg">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-2">
+                            <Badge variant="default" className="font-semibold">
+                              Version {quotation.version || 1}
+                            </Badge>
+                            <span className="text-sm font-mono text-muted-foreground">
+                              {quotation.quotationNumber}
+                            </span>
+                            <Badge variant={quotation.status === 'sent' ? 'secondary' : 'outline'}>
+                              {quotation.status}
+                            </Badge>
+                            <span className="text-xs text-muted-foreground ml-auto">
+                              {formatDistanceToNow(item.timestamp, { addSuffix: true })}
+                            </span>
+                          </div>
+                          <div className="space-y-1 text-sm">
+                            <p className="font-medium">₹{quotation.finalTotal?.toLocaleString('en-IN') || '0'}</p>
+                            <p className="text-muted-foreground">
+                              Created {formatDistanceToNow(item.timestamp, { addSuffix: true })}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 ml-4">
+                          {onEditQuotation && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => onEditQuotation(quotation)}
+                              title="Edit quotation to create new version"
+                            >
+                              <Edit className="w-4 h-4 mr-2" />
+                              Edit
+                            </Button>
+                          )}
+                        </div>
+                      </div>
                     </div>
+                    {index < timelineItems.length - 1 && <Separator className="mt-4" />}
                   </div>
-                  <p className="text-sm text-muted-foreground mb-2">
-                    {getActivityDescription(activity)}
-                  </p>
-                  {activity.user && (
-                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                      <User className="w-3 h-3" />
-                      <span>{activity.user.name || activity.user.email}</span>
+                );
+              } else {
+                const activity = item.data;
+                return (
+                  <div key={item.id}>
+                    <div className="flex items-start gap-3">
+                      <div className="flex-shrink-0 mt-1">
+                        {getActivityIcon(activity.type)}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between mb-1">
+                          <h4 className="font-medium text-sm">
+                            {getActivityTitle(activity.type)}
+                          </h4>
+                          <div className="flex items-center gap-2">
+                            <Badge variant={getActivityBadgeVariant(activity.type)} className="text-xs">
+                              {activity.type.replace('_', ' ').toUpperCase()}
+                            </Badge>
+                            <span className="text-xs text-muted-foreground">
+                              {formatDistanceToNow(item.timestamp, { addSuffix: true })}
+                            </span>
+                          </div>
+                        </div>
+                        <p className="text-sm text-muted-foreground mb-2">
+                          {getActivityDescription(activity)}
+                        </p>
+                        {activity.user && (
+                          <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                            <User className="w-3 h-3" />
+                            <span>{activity.user.name || activity.user.email}</span>
+                          </div>
+                        )}
+                        <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
+                          <Calendar className="w-3 h-3" />
+                          <span>{item.timestamp.toLocaleString()}</span>
+                        </div>
+                      </div>
                     </div>
-                  )}
-                  <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
-                    <Calendar className="w-3 h-3" />
-                    <span>{new Date(activity.timestamp).toLocaleString()}</span>
+                    {index < timelineItems.length - 1 && <Separator className="mt-4" />}
                   </div>
-                </div>
-              </div>
-              {index < activities.length - 1 && <Separator className="mt-4" />}
-            </div>
-          ))}
-        </div>
+                );
+              }
+            })}
+          </div>
+        )}
       </CardContent>
     </Card>
   );

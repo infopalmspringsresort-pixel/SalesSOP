@@ -109,6 +109,7 @@ export default function EnquiryDetailsDialog({ enquiry: initialEnquiry, open, on
       const loadedSessions = enquiry.sessions
         .map((session: any) => ({
           ...session,
+          id: session.id || session._id || Math.random().toString(36).substr(2, 9), // Ensure every session has an id
           sessionDate: new Date(session.sessionDate)
         }))
         .filter((session: any) => {
@@ -186,6 +187,7 @@ export default function EnquiryDetailsDialog({ enquiry: initialEnquiry, open, on
       queryClient.invalidateQueries({ queryKey: [`/api/enquiries/${enquiry?.id}`] });
       queryClient.invalidateQueries({ queryKey: ["/api/enquiries"] });
       setIsEditingSessions(false); // Exit edit mode after successful save
+      setEditingSessionId(null); // Reset which session is being edited
     },
     onError: (error: any) => {
       console.error('Session update error:', error);
@@ -1075,147 +1077,125 @@ export default function EnquiryDetailsDialog({ enquiry: initialEnquiry, open, on
               </div>
               {enquiry?.status !== 'booked' && enquiry?.status !== 'lost' && (
                 <div className="flex items-center gap-2">
-                  {isEditingSessions ? (
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        // Reload sessions from enquiry to cancel edits
-                        if (enquiry?.sessions) {
-                          const loadedSessions = enquiry.sessions
-                            .map((session: any) => ({
-                              ...session,
-                              sessionDate: new Date(session.sessionDate)
-                            }))
-                            .filter((session: any) => {
-                              return session.sessionName && 
-                                     session.venue && 
-                                     session.startTime && 
-                                     session.endTime;
-                            });
-                          setSessions(loadedSessions);
-                        } else {
-                          setSessions([]);
-                        }
-                        setIsEditingSessions(false);
-                      }}
-                      className="flex items-center gap-2"
-                    >
-                      Cancel
-                    </Button>
-                  ) : (
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        // Add a new empty session and enter edit mode for ONLY this new session
-                        const newSession = {
-                          id: Math.random().toString(36).substr(2, 9),
-                          sessionName: "",
-                          sessionLabel: "",
-                          venue: "",
-                          startTime: "",
-                          endTime: "",
-                          sessionDate: enquiry?.eventDate ? new Date(enquiry.eventDate) : new Date(),
-                          paxCount: 0,
-                          specialInstructions: "",
-                        };
-                        setSessions([...sessions, newSession]);
-                        setEditingSessionId(newSession.id); // Only edit this new session
-                        setIsEditingSessions(true); // Enter edit mode
-                      }}
-                      className="flex items-center gap-2"
-                    >
-                      <Plus className="w-4 h-4" />
-                      Add Session
-                    </Button>
-                  )}
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      // Add a new empty session and enter edit mode for ONLY this new session
+                      const newSession = {
+                        id: Math.random().toString(36).substr(2, 9),
+                        sessionName: "",
+                        sessionLabel: "",
+                        venue: "",
+                        startTime: "",
+                        endTime: "",
+                        sessionDate: enquiry?.eventDate ? new Date(enquiry.eventDate) : new Date(),
+                        paxCount: 0,
+                        specialInstructions: "",
+                      };
+                      setSessions([...sessions, newSession]);
+                      setEditingSessionId(newSession.id); // Only edit this new session
+                      setIsEditingSessions(true); // Enter edit mode
+                    }}
+                    className="flex items-center gap-2"
+                    disabled={!!editingSessionId} // Disable if already editing a session
+                  >
+                    <Plus className="w-4 h-4" />
+                    Add Session
+                  </Button>
                 </div>
               )}
             </div>
 
             <div className="space-y-4">
-              {isEditingSessions ? (
-                // Edit Mode: Show editable form (only for the session being edited if editingSessionId is set)
-                <>
-                  <EnquirySessionManagement
-                    sessions={editingSessionId 
-                      ? sessions.filter(s => s.id === editingSessionId) 
-                      : sessions}
-                    setSessions={(newSessions) => {
-                      if (editingSessionId) {
-                        // If editing a specific session, update only that one
-                        setSessions(sessions.map(s => 
-                          s.id === editingSessionId ? newSessions[0] : s
-                        ));
-                      } else {
-                        // If adding new session or viewing all, update all sessions
-                        setSessions(newSessions);
-                      }
-                    }}
-                    eventStartDate={enquiry?.eventDate ? new Date(enquiry.eventDate).toISOString().split('T')[0] : undefined}
-                    eventEndDate={enquiry?.eventEndDate ? new Date(enquiry.eventEndDate).toISOString().split('T')[0] : undefined}
-                    eventDuration={enquiry?.eventDuration || 1}
-                    hideHeader={true}
-                    sessionStartIndex={editingSessionId 
-                      ? sessions.findIndex(s => s.id === editingSessionId)
-                      : 0}
-                  />
-                  <div className="flex justify-end gap-2 pt-4 border-t">
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        setIsEditingSessions(false);
-                        // Remove any empty/incomplete sessions when canceling
-                        const validSessions = sessions.filter(s => 
-                          s.sessionName && s.venue && s.startTime && s.endTime
-                        );
-                        // Reload sessions from enquiry to restore original state
-                        if (enquiry?.sessions) {
-                          const loadedSessions = enquiry.sessions
-                            .map((session: any) => ({
-                              ...session,
-                              sessionDate: new Date(session.sessionDate)
-                            }))
-                            .filter((session: any) => {
-                              return session.sessionName && 
-                                     session.venue && 
-                                     session.startTime && 
-                                     session.endTime;
-                            });
-                          setSessions(loadedSessions);
-                        } else {
-                          setSessions(validSessions);
-                        }
-                        setEditingSessionId(null);
-                      }}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      onClick={() => {
-                        // Always save all sessions (filter out incomplete ones)
-                        const validSessions = sessions.filter(s => 
-                          s.sessionName && s.venue && s.startTime && s.endTime
-                        );
-                        if (validSessions.length > 0) {
-                          updateSessionsMutation.mutate(validSessions);
-                        } else {
-                          toast({
-                            title: 'Cannot save',
-                            description: 'Please fill in all required fields for at least one session.',
-                            variant: 'destructive',
-                          });
-                        }
-                      }}
-                      disabled={updateSessionsMutation.isPending}
-                    >
-                      {updateSessionsMutation.isPending ? 'Saving...' : 'Save Session'}
-                    </Button>
-                  </div>
-                </>
-              ) : sessions.length > 0 ? (
-                // View Mode: Show session boxes (complete or incomplete)
+              {sessions.length > 0 ? (
+                // Show all sessions - edit form for the one being edited, view mode for others
                 <div className="space-y-3">
                   {sessions.map((session, index) => {
+                    // Normalize session ID for comparison (handle both id and _id)
+                    const sessionId = session.id || (session as any)._id || `temp-${index}`;
+                    // Check if this session is currently being edited (only if both IDs exist and match)
+                    const isBeingEdited = editingSessionId !== null && editingSessionId !== undefined && editingSessionId === sessionId;
+                    
+                    // If this session is being edited, show edit form
+                    if (isBeingEdited) {
+                      return (
+                        <Card key={sessionId || index}>
+                          <CardContent className="p-4">
+                            <EnquirySessionManagement
+                              sessions={[session]}
+                              setSessions={(newSessions) => {
+                                // Update only this specific session
+                                const updatedSession = { ...newSessions[0], id: sessionId }; // Preserve the session ID
+                                setSessions(sessions.map(s => {
+                                  const sId = s.id || (s as any)._id;
+                                  return sId === editingSessionId ? updatedSession : s;
+                                }));
+                              }}
+                              eventStartDate={enquiry?.eventDate ? new Date(enquiry.eventDate).toISOString().split('T')[0] : undefined}
+                              eventEndDate={enquiry?.eventEndDate ? new Date(enquiry.eventEndDate).toISOString().split('T')[0] : undefined}
+                              eventDuration={enquiry?.eventDuration || 1}
+                              hideHeader={true}
+                              sessionStartIndex={index}
+                            />
+                            <div className="flex justify-end gap-2 pt-4 border-t mt-4">
+                              <Button
+                                variant="outline"
+                                onClick={() => {
+                                  // Reload session from enquiry to restore original state
+                                  if (enquiry?.sessions) {
+                                    const originalSession = enquiry.sessions.find((s: any) => {
+                                      const sId = (s as any).id || (s as any)._id;
+                                      return sId === editingSessionId;
+                                    });
+                                    if (originalSession) {
+                                      const updatedSessions = sessions.map(s => {
+                                        const sId = s.id || (s as any)._id;
+                                        return sId === editingSessionId ? {
+                                          ...originalSession,
+                                          id: editingSessionId,
+                                          sessionDate: new Date((originalSession as any).sessionDate)
+                                        } : s;
+                                      });
+                                      setSessions(updatedSessions);
+                                    }
+                                  }
+                                  setEditingSessionId(null);
+                                  setIsEditingSessions(false);
+                                }}
+                              >
+                                Cancel
+                              </Button>
+                              <Button
+                                onClick={() => {
+                                  // Validate and save this session
+                                  const currentSession = sessions.find(s => {
+                                    const sId = s.id || (s as any)._id;
+                                    return sId === editingSessionId;
+                                  });
+                                  if (currentSession?.sessionName && 
+                                      currentSession?.venue && 
+                                      currentSession?.startTime && 
+                                      currentSession?.endTime) {
+                                    updateSessionsMutation.mutate(sessions);
+                                  } else {
+                                    toast({
+                                      title: 'Cannot save',
+                                      description: 'Please fill in all required fields for this session.',
+                                      variant: 'destructive',
+                                    });
+                                  }
+                                }}
+                                disabled={updateSessionsMutation.isPending}
+                              >
+                                {updateSessionsMutation.isPending ? 'Saving...' : 'Save Session'}
+                              </Button>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      );
+                    }
+                    
+                    // Otherwise, show view mode for this session
                     // Check if session is complete (has all required fields)
                     const isComplete = session.sessionName && 
                                       session.venue && 
@@ -1223,7 +1203,7 @@ export default function EnquiryDetailsDialog({ enquiry: initialEnquiry, open, on
                                       session.endTime;
                     
                     return (
-                      <Card key={session.id || index}>
+                      <Card key={sessionId || index}>
                         <CardContent className="p-4">
                           <div className="flex items-start justify-between">
                             <div className="flex-1 space-y-2">
@@ -1285,8 +1265,11 @@ export default function EnquiryDetailsDialog({ enquiry: initialEnquiry, open, on
                                   size="sm"
                                   onClick={() => {
                                     // Enter edit mode to edit ONLY THIS specific session
-                                    setEditingSessionId(session.id);
-                                    setIsEditingSessions(true);
+                                    const sId = session.id || (session as any)._id || `temp-${index}`;
+                                    if (sId) {
+                                      setEditingSessionId(sId);
+                                      setIsEditingSessions(true);
+                                    }
                                   }}
                                   className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
                                   title="Edit this session"
@@ -1361,7 +1344,13 @@ export default function EnquiryDetailsDialog({ enquiry: initialEnquiry, open, on
 
             {/* Quotation History Component */}
             {enquiry && (
-              <QuotationHistory enquiryId={enquiry.id} />
+              <QuotationHistory 
+                enquiryId={enquiry.id} 
+                onEditQuotation={(quotation) => {
+                  setEditingQuotation(quotation);
+                  setShowQuotationForm(true);
+                }}
+              />
             )}
           </TabsContent>
 

@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import { FileText, Download, Mail, Eye, X } from "lucide-react";
-import { downloadWorkingQuotationPDF, type WorkingQuotationPDFData } from "@/lib/working-pdf-generator";
+import { apiRequest } from "@/lib/queryClient";
 import type { Quotation } from "@shared/schema-client";
 
 interface QuotationPreviewDialogProps {
@@ -29,44 +29,40 @@ export default function QuotationPreviewDialog({
   const handleDownloadPDF = async () => {
     try {
       setIsGeneratingPDF(true);
-      // Convert quotation data to PDF format using actual schema
-      const pdfData: WorkingQuotationPDFData = {
-        quotationNumber: quotation.quotationNumber,
-        quotationDate: new Date(quotation.createdAt).toLocaleDateString(),
-        clientName: quotation.clientName,
-        clientEmail: quotation.clientEmail,
-        clientPhone: quotation.clientPhone,
-        expectedGuests: quotation.expectedGuests || 0,
-        
-        venueRentalItems: quotation.venueRentalItems || [],
-        roomPackages: quotation.roomPackages || [],
-        menuPackages: quotation.menuPackages || [],
-        
-        venueRentalTotal: quotation.venueRentalTotal || 0,
-        roomTotal: quotation.roomTotal || 0,
-        menuTotal: quotation.menuTotal || 0,
-        banquetTotal: quotation.banquetTotal || 0,
-        grandTotal: quotation.grandTotal || 0,
-        
-        // GST and discount information
-        includeGST: quotation.includeGST || false,
-        discountType: quotation.discountType,
-        discountValue: quotation.discountValue,
-        discountAmount: quotation.discountAmount,
-        finalTotal: quotation.finalTotal,
-        
-        termsAndConditions: quotation.termsAndConditions || [],
-      };
       
-      downloadWorkingQuotationPDF(pdfData, `quotation-${quotation.quotationNumber}.pdf`);
+      // Call server endpoint to generate PDF - use fetch directly for blob response
+      const response = await fetch(`/api/quotations/${quotation.id}/pdf`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || "Failed to generate PDF");
+      }
+      
+      // Get PDF blob
+      const blob = await response.blob();
+      
+      // Create download link
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `quotation-${quotation.quotationNumber}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      
       toast({
         title: "PDF Downloaded",
         description: "Quotation PDF has been downloaded successfully.",
       });
     } catch (error) {
+      console.error("PDF generation error:", error);
       toast({
         title: "Error",
-        description: "Failed to generate PDF. Please try again.",
+        description: error instanceof Error ? error.message : "Failed to generate PDF. Please try again.",
         variant: "destructive",
       });
     } finally {

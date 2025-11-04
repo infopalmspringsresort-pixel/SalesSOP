@@ -460,6 +460,10 @@ export const quotationSchema = z.object({
   rejectedAt: z.date().optional(),
   notes: z.string().optional(),
   
+  // Version tracking
+  version: z.number().default(1), // Version number for this quotation (1, 2, 3, etc.)
+  parentQuotationId: z.string().optional(), // Reference to parent quotation if this is a revision
+  
   // Audit fields
   createdBy: z.string(),
   createdAt: z.date().optional(),
