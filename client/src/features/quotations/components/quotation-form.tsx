@@ -150,6 +150,134 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
     }
   };
 
+  // Helper function to force immediate recalculation of totals
+  const forceRecalculateTotals = () => {
+    // Get current form values
+    const currentVenueItems = form.getValues('venueRentalItems') || [];
+    const currentRoomPackages = form.getValues('roomPackages') || [];
+    const currentIncludeGST = form.getValues('includeGST') || false;
+    const currentDiscountValue = form.getValues('discountValue') || 0;
+    const currentDiscountType = form.getValues('discountType');
+    
+    // Calculate venue base total
+    const venueBaseTotal = currentVenueItems.reduce((sum, item) => sum + (item.sessionRate || 0), 0) || 0;
+    
+    // Calculate room base total
+    const roomBaseTotal = currentRoomPackages.reduce((sum, item) => {
+      const rate = item.rate || 0;
+      const numberOfRooms = item.numberOfRooms || 1;
+      const baseRoomAmount = rate * numberOfRooms;
+      const defaultOccupancy = item.defaultOccupancy || 2;
+      const totalOccupancy = item.totalOccupancy || (defaultOccupancy * numberOfRooms);
+      const defaultTotalOccupancy = defaultOccupancy * numberOfRooms;
+      const extraPersons = Math.max(0, totalOccupancy - defaultTotalOccupancy);
+      const extraPersonRate = item.extraPersonRate || 0;
+      const extraPersonCharges = extraPersons * extraPersonRate;
+      return sum + baseRoomAmount + extraPersonCharges;
+    }, 0) || 0;
+    
+    // Calculate menu base total
+    const menuBaseTotal = selectedMenuPackages.reduce((sum, packageId) => {
+      const selectedPackage = menuPackages.find(pkg => pkg.id === packageId);
+      if (selectedPackage) {
+        const customData = customMenuItems[packageId];
+        const packagePrice = selectedPackage.price;
+        const additionalItemsTotal = customData?.selectedItems?.reduce((itemSum: number, item: any) => {
+          return itemSum + (!item.isPackageItem ? (item.additionalPrice || 0) : 0);
+        }, 0) || 0;
+        return sum + packagePrice + additionalItemsTotal;
+      }
+      return sum;
+    }, 0);
+    
+    const totalBaseAmount = venueBaseTotal + roomBaseTotal + menuBaseTotal;
+    
+    // Calculate discounts
+    let venueDiscountAmount = 0;
+    let roomDiscountAmount = 0;
+    let menuDiscountAmount = 0;
+    let totalDiscountAmount = 0;
+    
+    if (currentDiscountValue > 0 && currentDiscountType === 'percentage' && totalBaseAmount > 0) {
+      venueDiscountAmount = (venueBaseTotal * currentDiscountValue) / 100;
+      roomDiscountAmount = (roomBaseTotal * currentDiscountValue) / 100;
+      menuDiscountAmount = (menuBaseTotal * currentDiscountValue) / 100;
+      totalDiscountAmount = venueDiscountAmount + roomDiscountAmount + menuDiscountAmount;
+    } else if (currentDiscountValue > 0 && currentDiscountType === 'fixed') {
+      const discountRatio = totalBaseAmount > 0 ? Math.min(currentDiscountValue, totalBaseAmount) / totalBaseAmount : 0;
+      venueDiscountAmount = venueBaseTotal * discountRatio;
+      roomDiscountAmount = roomBaseTotal * discountRatio;
+      menuDiscountAmount = menuBaseTotal * discountRatio;
+      totalDiscountAmount = venueDiscountAmount + roomDiscountAmount + menuDiscountAmount;
+    }
+    
+    // Apply discount
+    const venueBaseAfterDiscount = venueBaseTotal - venueDiscountAmount;
+    const roomBaseAfterDiscount = roomBaseTotal - roomDiscountAmount;
+    const menuBaseAfterDiscount = menuBaseTotal - menuDiscountAmount;
+    
+    // Calculate GST
+    const venueGST = currentIncludeGST ? calculateGST(venueBaseAfterDiscount, 'venue') : 0;
+    const venueTotal = venueBaseAfterDiscount + venueGST;
+    
+    const roomDiscountRatio = roomBaseTotal > 0 ? roomDiscountAmount / roomBaseTotal : 0;
+    const roomGST = currentIncludeGST ? currentRoomPackages.reduce((sum, item) => {
+      const rate = item.rate || 0;
+      const numberOfRooms = item.numberOfRooms || 1;
+      const baseRoomAmount = rate * numberOfRooms;
+      const defaultOccupancy = item.defaultOccupancy || 2;
+      const totalOccupancy = item.totalOccupancy || (defaultOccupancy * numberOfRooms);
+      const defaultTotalOccupancy = defaultOccupancy * numberOfRooms;
+      const extraPersons = Math.max(0, totalOccupancy - defaultTotalOccupancy);
+      const extraPersonRate = item.extraPersonRate || 0;
+      const extraPersonCharges = extraPersons * extraPersonRate;
+      const itemBaseTotal = baseRoomAmount + extraPersonCharges;
+      const itemDiscount = itemBaseTotal * roomDiscountRatio;
+      const itemBaseAfterDiscount = itemBaseTotal - itemDiscount;
+      return sum + calculateGST(itemBaseAfterDiscount, 'room', rate);
+    }, 0) : 0;
+    const roomQuotationTotal = roomBaseAfterDiscount + roomGST;
+    
+    const menuGST = currentIncludeGST ? calculateGST(menuBaseAfterDiscount, 'menu') : 0;
+    const menuTotal = menuBaseAfterDiscount + menuGST;
+    
+    // Calculate final totals
+    const banquetTotal = venueTotal;
+    const roomTotal = roomQuotationTotal;
+    const grandTotal = venueTotal + roomQuotationTotal + menuTotal;
+    
+    // Update form values immediately
+    form.setValue('venueRentalTotal', venueTotal, { shouldValidate: true, shouldDirty: false });
+    form.setValue('roomQuotationTotal', roomQuotationTotal, { shouldValidate: true, shouldDirty: false });
+    form.setValue('roomTotal', roomTotal, { shouldValidate: true, shouldDirty: false });
+    form.setValue('menuTotal', menuTotal, { shouldValidate: true, shouldDirty: false });
+    form.setValue('banquetTotal', banquetTotal, { shouldValidate: true, shouldDirty: false });
+    form.setValue('grandTotal', grandTotal, { shouldValidate: true, shouldDirty: false });
+    form.setValue('finalTotal', grandTotal, { shouldValidate: true, shouldDirty: false });
+    
+    // Update discount amount
+    const currentDiscountAmount = form.getValues('discountAmount') || 0;
+    if (Math.abs(currentDiscountAmount - totalDiscountAmount) > 0.01) {
+      form.setValue('discountAmount', totalDiscountAmount, { shouldValidate: true, shouldDirty: false });
+    }
+    
+    // Store GST breakdown
+    const totalGST = venueGST + roomGST + menuGST;
+    setGstBreakdown(currentIncludeGST ? {
+      venueGST,
+      roomGST,
+      menuGST,
+      totalGST,
+      baseTotal: venueBaseAfterDiscount + roomBaseAfterDiscount + menuBaseAfterDiscount,
+      venueDiscount: venueDiscountAmount,
+      roomDiscount: roomDiscountAmount,
+      menuDiscount: menuDiscountAmount,
+      venueBaseAfterDiscount,
+      roomBaseAfterDiscount,
+      menuBaseAfterDiscount,
+    } : null);
+  };
+
 
   // Helper function to convert date to DD/MM/YYYY format
   const convertToDDMMYYYY = (dateString: string | undefined | null): string => {
@@ -408,13 +536,13 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
     const totalGST = venueGST + roomGST + menuGST;
     const baseTotalAfterDiscount = venueBaseAfterDiscount + roomBaseAfterDiscount + menuBaseAfterDiscount;
     
-    // Update form values
-    form.setValue('venueRentalTotal', venueTotal, { shouldValidate: false, shouldDirty: false });
-    form.setValue('roomQuotationTotal', roomQuotationTotal, { shouldValidate: false, shouldDirty: false });
-    form.setValue('roomTotal', roomTotal, { shouldValidate: false, shouldDirty: false });
-    form.setValue('menuTotal', menuTotal, { shouldValidate: false, shouldDirty: false });
-    form.setValue('banquetTotal', banquetTotal, { shouldValidate: false, shouldDirty: false });
-    form.setValue('grandTotal', grandTotal, { shouldValidate: false, shouldDirty: false });
+    // Update form values - use shouldValidate: true to ensure useWatch triggers
+    form.setValue('venueRentalTotal', venueTotal, { shouldValidate: true, shouldDirty: false });
+    form.setValue('roomQuotationTotal', roomQuotationTotal, { shouldValidate: true, shouldDirty: false });
+    form.setValue('roomTotal', roomTotal, { shouldValidate: true, shouldDirty: false });
+    form.setValue('menuTotal', menuTotal, { shouldValidate: true, shouldDirty: false });
+    form.setValue('banquetTotal', banquetTotal, { shouldValidate: true, shouldDirty: false });
+    form.setValue('grandTotal', grandTotal, { shouldValidate: true, shouldDirty: false });
     
     // Update discount amount if it changed
     const currentDiscountAmount = form.getValues('discountAmount') || 0;
@@ -524,6 +652,59 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
     console.log('🚀 Form onSubmit called');
     setIsSubmitting(true);
     try {
+      // Force recalculation of all totals before submission
+      // This ensures that any changes made just before submission are included
+      const currentVenueItems = form.getValues('venueRentalItems') || [];
+      const currentRoomPackages = form.getValues('roomPackages') || [];
+      const currentIncludeGST = form.getValues('includeGST') || false;
+      const currentDiscountValue = form.getValues('discountValue') || 0;
+      const currentDiscountType = form.getValues('discountType');
+      
+      // Recalculate venue total
+      const venueBaseTotal = currentVenueItems.reduce((sum, item) => sum + (item.sessionRate || 0), 0);
+      const venueGST = currentIncludeGST ? calculateGST(venueBaseTotal, 'venue') : 0;
+      const venueTotal = venueBaseTotal + venueGST;
+      
+      // Recalculate room total
+      const roomBaseTotal = currentRoomPackages.reduce((sum, item) => {
+        const rate = item.rate || 0;
+        const numberOfRooms = item.numberOfRooms || 1;
+        const baseRoomAmount = rate * numberOfRooms;
+        const defaultOccupancy = item.defaultOccupancy || 2;
+        const totalOccupancy = item.totalOccupancy || (defaultOccupancy * numberOfRooms);
+        const defaultTotalOccupancy = defaultOccupancy * numberOfRooms;
+        const extraPersons = Math.max(0, totalOccupancy - defaultTotalOccupancy);
+        const extraPersonRate = item.extraPersonRate || 0;
+        const extraPersonCharges = extraPersons * extraPersonRate;
+        return sum + baseRoomAmount + extraPersonCharges;
+      }, 0);
+      
+      // Calculate room GST item by item
+      const roomGST = currentIncludeGST ? currentRoomPackages.reduce((sum, item) => {
+        const rate = item.rate || 0;
+        const numberOfRooms = item.numberOfRooms || 1;
+        const baseRoomAmount = rate * numberOfRooms;
+        const defaultOccupancy = item.defaultOccupancy || 2;
+        const totalOccupancy = item.totalOccupancy || (defaultOccupancy * numberOfRooms);
+        const defaultTotalOccupancy = defaultOccupancy * numberOfRooms;
+        const extraPersons = Math.max(0, totalOccupancy - defaultTotalOccupancy);
+        const extraPersonRate = item.extraPersonRate || 0;
+        const extraPersonCharges = extraPersons * extraPersonRate;
+        const itemBaseTotal = baseRoomAmount + extraPersonCharges;
+        return sum + calculateGST(itemBaseTotal, 'room', rate);
+      }, 0) : 0;
+      const roomQuotationTotal = roomBaseTotal + roomGST;
+      
+      // Update form with recalculated totals
+      form.setValue('venueRentalTotal', venueTotal, { shouldValidate: false, shouldDirty: false });
+      form.setValue('roomQuotationTotal', roomQuotationTotal, { shouldValidate: false, shouldDirty: false });
+      form.setValue('roomTotal', roomQuotationTotal, { shouldValidate: false, shouldDirty: false });
+      form.setValue('banquetTotal', venueTotal, { shouldValidate: false, shouldDirty: false });
+      
+      // Get updated data with recalculated totals
+      const updatedData = form.getValues();
+      
+      // Continue with submission using updated data
       // Prepare menu packages data
       console.log('🔍 customMenuItems:', customMenuItems);
       console.log('🔍 selectedMenuPackages:', selectedMenuPackages);
@@ -671,16 +852,17 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
       
       console.log('🔍 menuPackagesData:', JSON.stringify(menuPackagesData, null, 2));
 
-      // Use totals already calculated by useEffect (which includes discount and GST)
+      // Use updated data with recalculated totals (which includes discount and GST)
       const formData = {
-        ...data,
+        ...updatedData,
         menuPackages: menuPackagesData,
-        venueRentalTotal: data.venueRentalTotal || 0,
-        roomQuotationTotal: data.roomQuotationTotal || 0,
-        roomTotal: data.roomTotal || 0,
-        menuTotal: data.menuTotal || 0,
-        grandTotal: data.grandTotal || 0,
-        finalTotal: data.finalTotal || data.grandTotal || 0,
+        venueRentalTotal: updatedData.venueRentalTotal || venueTotal || 0,
+        roomQuotationTotal: updatedData.roomQuotationTotal || roomQuotationTotal || 0,
+        roomTotal: updatedData.roomTotal || roomQuotationTotal || 0,
+        menuTotal: updatedData.menuTotal || 0,
+        banquetTotal: updatedData.banquetTotal || venueTotal || 0,
+        grandTotal: updatedData.grandTotal || 0,
+        finalTotal: updatedData.finalTotal || updatedData.grandTotal || 0,
         createdBy: (user as any)?.id || (user as any)?._id || '',
       };
       
@@ -880,27 +1062,12 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
     // Clear parentQuotationId when loading a package (since we're starting fresh)
     form.setValue('parentQuotationId', undefined, { shouldValidate: false });
     
-    // Force form to update and trigger recalculation
-    // Use setTimeout to ensure React Hook Form processes the changes and useWatch hooks detect them
-    setTimeout(() => {
-      // Trigger validation to ensure form state is updated
-      form.trigger(['venueRentalItems', 'roomPackages']);
-      
-      // Force recalculation by creating new array references
-      // This ensures useWatch hooks detect the change
-      const currentVenueItems = form.getValues('venueRentalItems');
-      const currentRoomPackages = form.getValues('roomPackages');
-      
-      if (currentVenueItems && currentVenueItems.length > 0) {
-        form.setValue('venueRentalItems', [...currentVenueItems], { shouldValidate: false, shouldDirty: false });
-      }
-      if (currentRoomPackages && currentRoomPackages.length > 0) {
-        form.setValue('roomPackages', [...currentRoomPackages], { shouldValidate: false, shouldDirty: false });
-      }
-      
-      // Also explicitly trigger a form state update to ensure useWatch hooks fire
-      form.trigger();
-    }, 100); // Small delay to ensure React Hook Form has processed the initial setValue calls
+    // Force immediate recalculation of totals after loading package data
+    // Use requestAnimationFrame to ensure React Hook Form has processed the setValue calls
+    requestAnimationFrame(() => {
+      // Force immediate recalculation - this directly calculates and updates totals
+      forceRecalculateTotals();
+    });
     
     // Load menu packages
     if (selectedPackage.menuPackages && selectedPackage.menuPackages.length > 0) {
@@ -927,6 +1094,12 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
     if (selectedPackage.includeGST !== undefined) {
       form.setValue('includeGST', selectedPackage.includeGST);
     }
+    
+    // Recalculate totals again after menu packages and settings are loaded
+    // This ensures menu totals are included in the calculation
+    requestAnimationFrame(() => {
+      forceRecalculateTotals();
+    });
     if (selectedPackage.checkInTime) {
       form.setValue('checkInTime', selectedPackage.checkInTime);
     }
@@ -1499,8 +1672,12 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
                                       // Auto-fill venue space and rate when venue is selected
                                       const selectedVenue = venues.find(v => v.name === value);
                                       if (selectedVenue) {
-                                        form.setValue(`venueRentalItems.${index}.venueSpace`, `${selectedVenue.area.toLocaleString()} Sq. ft.`);
-                                        form.setValue(`venueRentalItems.${index}.sessionRate`, selectedVenue.hiringCharges);
+                                        form.setValue(`venueRentalItems.${index}.venueSpace`, `${selectedVenue.area.toLocaleString()} Sq. ft.`, { shouldValidate: true, shouldDirty: true });
+                                        form.setValue(`venueRentalItems.${index}.sessionRate`, selectedVenue.hiringCharges, { shouldValidate: true, shouldDirty: true });
+                                        // Force immediate recalculation
+                                        requestAnimationFrame(() => {
+                                          forceRecalculateTotals();
+                                        });
                                       }
                                     }} 
                                     value={field.value}
@@ -1579,6 +1756,10 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
                                       onChange={(e) => {
                                         const value = e.target.value ? Number(e.target.value) : 0;
                                         field.onChange(value);
+                                        // Force immediate recalculation
+                                        requestAnimationFrame(() => {
+                                          forceRecalculateTotals();
+                                        });
                                       }}
                                     />
                                   </FormControl>
@@ -1683,11 +1864,15 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
                                         const numberOfRooms = form.getValues(`roomPackages.${index}.numberOfRooms`) || 1;
                                         const totalOccupancy = defaultOccupancy * numberOfRooms;
                                         
-                                        form.setValue(`roomPackages.${index}.rate`, selectedRoom.baseRate || 0, { shouldValidate: false, shouldDirty: false });
-                                        form.setValue(`roomPackages.${index}.defaultOccupancy`, defaultOccupancy, { shouldValidate: false, shouldDirty: false });
-                                        form.setValue(`roomPackages.${index}.maxOccupancy`, maxOccupancy, { shouldValidate: false, shouldDirty: false });
-                                        form.setValue(`roomPackages.${index}.extraPersonRate`, extraPersonRate, { shouldValidate: false, shouldDirty: false });
-                                        form.setValue(`roomPackages.${index}.totalOccupancy`, totalOccupancy, { shouldValidate: false, shouldDirty: false });
+                                        form.setValue(`roomPackages.${index}.rate`, selectedRoom.baseRate || 0, { shouldValidate: true, shouldDirty: true });
+                                        form.setValue(`roomPackages.${index}.defaultOccupancy`, defaultOccupancy, { shouldValidate: true, shouldDirty: true });
+                                        form.setValue(`roomPackages.${index}.maxOccupancy`, maxOccupancy, { shouldValidate: true, shouldDirty: true });
+                                        form.setValue(`roomPackages.${index}.extraPersonRate`, extraPersonRate, { shouldValidate: true, shouldDirty: true });
+                                        form.setValue(`roomPackages.${index}.totalOccupancy`, totalOccupancy, { shouldValidate: true, shouldDirty: true });
+                                        // Force immediate recalculation
+                                        requestAnimationFrame(() => {
+                                          forceRecalculateTotals();
+                                        });
                                       }
                                     }} 
                                     value={field.value}
@@ -1725,8 +1910,10 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
                                       onChange={(e) => {
                                         const value = e.target.value ? Number(e.target.value) : 0;
                                         field.onChange(value);
-                                        // Force form to re-render and recalculate
-                                        form.trigger();
+                                        // Force immediate recalculation
+                                        requestAnimationFrame(() => {
+                                          forceRecalculateTotals();
+                                        });
                                       }}
                                     />
                                   </FormControl>
@@ -1763,14 +1950,18 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
                                             const newDefaultTotal = defaultOccupancy * numValue;
                                             // If current occupancy is not set or is based on old room count, update it
                                             if (!currentTotalOccupancy || currentTotalOccupancy < newDefaultTotal) {
-                                              form.setValue(`roomPackages.${index}.totalOccupancy`, newDefaultTotal, { shouldValidate: false, shouldDirty: false });
+                                              form.setValue(`roomPackages.${index}.totalOccupancy`, newDefaultTotal, { shouldValidate: true, shouldDirty: true });
                                             } else {
                                               // Ensure totalOccupancy doesn't exceed maxOccupancy * numberOfRooms
                                               const maxTotalOccupancy = maxOccupancy * numValue;
                                               if (currentTotalOccupancy > maxTotalOccupancy) {
-                                                form.setValue(`roomPackages.${index}.totalOccupancy`, maxTotalOccupancy, { shouldValidate: false, shouldDirty: false });
+                                                form.setValue(`roomPackages.${index}.totalOccupancy`, maxTotalOccupancy, { shouldValidate: true, shouldDirty: true });
                                               }
                                             }
+                                            // Force immediate recalculation
+                                            requestAnimationFrame(() => {
+                                              forceRecalculateTotals();
+                                            });
                                           }
                                         }
                                       }}
@@ -1809,6 +2000,10 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
                                             const numValue = Number(value);
                                             if (!isNaN(numValue)) {
                                               field.onChange(numValue);
+                                              // Force immediate recalculation
+                                              requestAnimationFrame(() => {
+                                                forceRecalculateTotals();
+                                              });
                                             }
                                           }
                                         }}

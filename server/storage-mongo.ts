@@ -2315,22 +2315,6 @@ export class MongoStorage implements IStorage {
     // This ensures proper sequential versioning
     version = await this.getNextQuotationVersion(quotation.enquiryId);
     
-    console.log(`📝 Assigning version ${version} to quotation for enquiry ${quotation.enquiryId}`);
-    
-    // Log menuPackages to ensure arrays are preserved
-    if (quotation.menuPackages) {
-      console.log('📦 Storage: menuPackages before save:', JSON.stringify(
-        quotation.menuPackages.map((pkg: any) => ({
-          id: pkg.id,
-          name: pkg.name,
-          selectedItemsCount: pkg.selectedItems?.length || 0,
-          customItemsCount: pkg.customItems?.length || 0,
-          selectedItems: pkg.selectedItems,
-          customItems: pkg.customItems
-        })), null, 2
-      ));
-    }
-    
     const doc = {
       ...quotation,
       enquiryId: this.toObjectId(quotation.enquiryId),
@@ -2348,39 +2332,8 @@ export class MongoStorage implements IStorage {
       updatedAt: new Date(),
     };
     
-    // Log the doc being inserted
-    if (doc.menuPackages) {
-      console.log('📦 Storage: doc.menuPackages before insert:', JSON.stringify(
-        doc.menuPackages.map((pkg: any) => ({
-          id: pkg.id,
-          name: pkg.name,
-          selectedItemsCount: pkg.selectedItems?.length || 0,
-          customItemsCount: pkg.customItems?.length || 0
-        })), null, 2
-      ));
-    }
-    
     const result = await collection.insertOne(doc);
     const savedDoc = { ...doc, _id: result.insertedId };
-    
-    // Log version assignment
-    console.log(`✅ Saved quotation ${quotationNumber} with version ${version} for enquiry ${quotation.enquiryId}`);
-    
-    // Log after insert to verify data was saved
-    const savedQuotation = await collection.findOne({ _id: result.insertedId });
-    if (savedQuotation) {
-      console.log(`✅ Verified saved quotation version: ${savedQuotation.version}`);
-    }
-    if (savedQuotation?.menuPackages) {
-      console.log('✅ Storage: menuPackages after save:', JSON.stringify(
-        savedQuotation.menuPackages.map((pkg: any) => ({
-          id: pkg.id,
-          name: pkg.name,
-          selectedItemsCount: pkg.selectedItems?.length || 0,
-          customItemsCount: pkg.customItems?.length || 0
-        })), null, 2
-      ));
-    }
     
     return this.toApiFormat(savedDoc);
   }

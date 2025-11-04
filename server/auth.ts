@@ -35,19 +35,32 @@ export function getSession() {
       });
 
       // Handle session store errors gracefully
-      sessionStore.on('error', (error) => {
-        // ECONNRESET errors are common with MongoDB connections and can be safely ignored
+      sessionStore.on('error', (error: any) => {
+        // ECONNRESET, ETIMEDOUT, and connection errors are common with MongoDB
         // These happen when the connection drops temporarily and will auto-reconnect
-        if (error.message && (
-          error.message.includes('ECONNRESET') ||
-          error.message.includes('ETIMEDOUT') ||
-          error.message.includes('connection')
-        )) {
+        // These can be safely ignored as they don't affect functionality
+        const errorMessage = error?.message || error?.toString() || '';
+        const errorCode = error?.code || '';
+        
+        if (
+          errorMessage.includes('ECONNRESET') ||
+          errorMessage.includes('ETIMEDOUT') ||
+          errorMessage.includes('connection') ||
+          errorMessage.includes('ECONNREFUSED') ||
+          errorCode === 'ECONNRESET' ||
+          errorCode === 'ETIMEDOUT' ||
+          errorCode === 'ECONNREFUSED' ||
+          errorMessage.includes('read ECONNRESET') ||
+          errorMessage.includes('Error finding')
+        ) {
           // Silently ignore connection-related errors - they'll auto-reconnect
+          // These are transient network issues and don't affect app functionality
           return;
         }
-        // Log other errors for debugging
-        console.error('Session store error:', error.message);
+        // Only log unexpected errors that might need attention
+        if (process.env.NODE_ENV === 'development') {
+          console.warn('Session store warning:', errorMessage);
+        }
       });
 
       return session({

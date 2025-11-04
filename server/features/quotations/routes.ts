@@ -239,33 +239,8 @@ router.get('/', async (req, res) => {
 // Create new quotation
 router.post('/', async (req, res) => {
   try {
-    // Log incoming request for debugging
-    console.log('📥 Received quotation data:', JSON.stringify({
-      ...req.body,
-      menuPackages: req.body.menuPackages?.map((pkg: any) => ({
-        id: pkg.id,
-        name: pkg.name,
-        selectedItemsCount: pkg.selectedItems?.length || 0,
-        customItemsCount: pkg.customItems?.length || 0,
-        selectedItems: pkg.selectedItems,
-        customItems: pkg.customItems
-      }))
-    }, null, 2));
-    
     // Use the modified schema that accepts strings and transforms them to ObjectIds
     const validatedData = insertQuotationSchemaWithStringIds.parse(req.body);
-    
-    // Log validated data to ensure menuPackages arrays are preserved
-    console.log('✅ Validated data menuPackages:', JSON.stringify({
-      menuPackages: validatedData.menuPackages?.map((pkg: any) => ({
-        id: pkg.id,
-        name: pkg.name,
-        selectedItemsCount: pkg.selectedItems?.length || 0,
-        customItemsCount: pkg.customItems?.length || 0,
-        selectedItems: pkg.selectedItems,
-        customItems: pkg.customItems
-      }))
-    }, null, 2));
     
     const quotation = await storage.createQuotation(validatedData);
     res.status(201).json(quotation);

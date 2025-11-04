@@ -97,13 +97,6 @@ export function registerSystemSettingsRoutes(app: Express) {
         const discountAmount = (grandTotal * discountValue) / 100;
         const exceedsLimit = discountValue > maxPercentage;
         
-        console.log('✅ Discount calculation:', {
-          discountValue,
-          maxPercentage,
-          discountAmount,
-          exceedsLimit
-        });
-        
         const reason = exceedsLimit ? `Discount percentage (${discountValue}%) exceeds notification threshold (${maxPercentage}%)` : '';
         
         res.json({

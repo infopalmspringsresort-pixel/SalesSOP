@@ -241,6 +241,13 @@ export default function QuotationPackageForm({
   const venueRentalItems = form.watch("venueRentalItems");
   const roomPackages = form.watch("roomPackages");
 
+  // Helper function to force immediate recalculation of totals
+  const forceRecalculateTotals = () => {
+    // Force form to re-render by triggering a state update
+    // This ensures useMemo recalculates
+    form.trigger(['venueRentalItems', 'roomPackages']);
+  };
+
   const totals = useMemo(() => {
     const venues = venueRentalItems || [];
     const rooms = roomPackages || [];
@@ -252,12 +259,22 @@ export default function QuotationPackageForm({
       venueSubtotal += rate;
     });
     
-    // Calculate room subtotal
+    // Calculate room subtotal (including extra person charges)
     let roomSubtotal = 0;
     rooms.forEach(room => {
       const rate = Number(room.rate) || 0;
       const roomCount = Number(room.numberOfRooms) || 1;
-      roomSubtotal += (rate * roomCount);
+      const baseRoomAmount = rate * roomCount;
+      
+      // Calculate extra person charges
+      const defaultOccupancy = room.defaultOccupancy || 2;
+      const totalOccupancy = room.totalOccupancy || (defaultOccupancy * roomCount);
+      const defaultTotalOccupancy = defaultOccupancy * roomCount;
+      const extraPersons = Math.max(0, totalOccupancy - defaultTotalOccupancy);
+      const extraPersonRate = room.extraPersonRate || 0;
+      const extraPersonCharges = extraPersons * extraPersonRate;
+      
+      roomSubtotal += (baseRoomAmount + extraPersonCharges);
     });
     
     // Calculate menu subtotal
@@ -598,8 +615,12 @@ export default function QuotationPackageForm({
                                       field.onChange(value);
                                       const selectedVenue = venues.find(v => v.name === value);
                                       if (selectedVenue) {
-                                        form.setValue(`venueRentalItems.${index}.venueSpace`, `${selectedVenue.area.toLocaleString()} Sq. ft.`);
-                                        form.setValue(`venueRentalItems.${index}.sessionRate`, selectedVenue.hiringCharges);
+                                        form.setValue(`venueRentalItems.${index}.venueSpace`, `${selectedVenue.area.toLocaleString()} Sq. ft.`, { shouldValidate: true, shouldDirty: true });
+                                        form.setValue(`venueRentalItems.${index}.sessionRate`, selectedVenue.hiringCharges, { shouldValidate: true, shouldDirty: true });
+                                        // Force immediate recalculation
+                                        requestAnimationFrame(() => {
+                                          forceRecalculateTotals();
+                                        });
                                       }
                                     }} 
                                     value={field.value}
@@ -681,6 +702,10 @@ export default function QuotationPackageForm({
                                       onChange={(e) => {
                                         const value = e.target.value ? Number(e.target.value) : 0;
                                         field.onChange(value);
+                                        // Force immediate recalculation
+                                        requestAnimationFrame(() => {
+                                          forceRecalculateTotals();
+                                        });
                                       }}
                                     />
                                   </FormControl>
@@ -778,11 +803,15 @@ export default function QuotationPackageForm({
                                         const numberOfRooms = form.getValues(`roomPackages.${index}.numberOfRooms`) || 1;
                                         const totalOccupancy = defaultOccupancy * numberOfRooms;
                                         
-                                        form.setValue(`roomPackages.${index}.rate`, selectedRoom.baseRate || 0, { shouldValidate: false, shouldDirty: false });
-                                        form.setValue(`roomPackages.${index}.defaultOccupancy`, defaultOccupancy, { shouldValidate: false, shouldDirty: false });
-                                        form.setValue(`roomPackages.${index}.maxOccupancy`, maxOccupancy, { shouldValidate: false, shouldDirty: false });
-                                        form.setValue(`roomPackages.${index}.extraPersonRate`, extraPersonRate, { shouldValidate: false, shouldDirty: false });
-                                        form.setValue(`roomPackages.${index}.totalOccupancy`, totalOccupancy, { shouldValidate: false, shouldDirty: false });
+                                        form.setValue(`roomPackages.${index}.rate`, selectedRoom.baseRate || 0, { shouldValidate: true, shouldDirty: true });
+                                        form.setValue(`roomPackages.${index}.defaultOccupancy`, defaultOccupancy, { shouldValidate: true, shouldDirty: true });
+                                        form.setValue(`roomPackages.${index}.maxOccupancy`, maxOccupancy, { shouldValidate: true, shouldDirty: true });
+                                        form.setValue(`roomPackages.${index}.extraPersonRate`, extraPersonRate, { shouldValidate: true, shouldDirty: true });
+                                        form.setValue(`roomPackages.${index}.totalOccupancy`, totalOccupancy, { shouldValidate: true, shouldDirty: true });
+                                        // Force immediate recalculation
+                                        requestAnimationFrame(() => {
+                                          forceRecalculateTotals();
+                                        });
                                       }
                                     }} 
                                     value={field.value}
@@ -820,7 +849,10 @@ export default function QuotationPackageForm({
                                       onChange={(e) => {
                                         const value = e.target.value ? Number(e.target.value) : 0;
                                         field.onChange(value);
-                                        form.trigger();
+                                        // Force immediate recalculation
+                                        requestAnimationFrame(() => {
+                                          forceRecalculateTotals();
+                                        });
                                       }}
                                     />
                                   </FormControl>
@@ -855,13 +887,17 @@ export default function QuotationPackageForm({
                                           if (!isNaN(numValue) && numValue > 0) {
                                             const newDefaultTotal = defaultOccupancy * numValue;
                                             if (!currentTotalOccupancy || currentTotalOccupancy < newDefaultTotal) {
-                                              form.setValue(`roomPackages.${index}.totalOccupancy`, newDefaultTotal, { shouldValidate: false, shouldDirty: false });
+                                              form.setValue(`roomPackages.${index}.totalOccupancy`, newDefaultTotal, { shouldValidate: true, shouldDirty: true });
                                             } else {
                                               const maxTotalOccupancy = maxOccupancy * numValue;
                                               if (currentTotalOccupancy > maxTotalOccupancy) {
-                                                form.setValue(`roomPackages.${index}.totalOccupancy`, maxTotalOccupancy, { shouldValidate: false, shouldDirty: false });
+                                                form.setValue(`roomPackages.${index}.totalOccupancy`, maxTotalOccupancy, { shouldValidate: true, shouldDirty: true });
                                               }
                                             }
+                                            // Force immediate recalculation
+                                            requestAnimationFrame(() => {
+                                              forceRecalculateTotals();
+                                            });
                                           }
                                         }
                                       }}
@@ -897,6 +933,10 @@ export default function QuotationPackageForm({
                                           } else {
                                             const numValue = Number(value);
                                             field.onChange(isNaN(numValue) ? null : numValue);
+                                            // Force immediate recalculation
+                                            requestAnimationFrame(() => {
+                                              forceRecalculateTotals();
+                                            });
                                           }
                                         }}
                                       />
