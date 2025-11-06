@@ -368,24 +368,35 @@ export default function QuotationForm({
         throw new Error("Invalid quotation totals. Please check all rates and quantities.");
       }
 
-      // Get user ID for createdBy
-      const userId = user ? (String((user as any)?.id || (user as any)?._id || '')) : '';
-      if (!userId) {
-        throw new Error("User authentication required. Please log in again.");
+      // Validate enquiryId - must be a non-empty string
+      if (!enquiryId || typeof enquiryId !== 'string' || enquiryId.trim() === '') {
+        throw new Error("Enquiry ID is required.");
       }
 
-      // Extract eventDate from first venue session
-      const firstEventDate = data.venueSessions && data.venueSessions.length > 0 && data.venueSessions[0].eventDate
-        ? data.venueSessions[0].eventDate
-        : (enquiry?.eventDate ? new Date(enquiry.eventDate).toISOString().split('T')[0] : '');
+      // Get user ID for createdBy - must be present
+      if (!user) {
+        throw new Error("User authentication required. Please log in again.");
+      }
+      const userId = String((user as any)?.id || (user as any)?._id || '');
+      if (!userId || userId.trim() === '' || userId === 'undefined' || userId === 'null') {
+        throw new Error("User ID is missing. Please log in again.");
+      }
 
-      if (!firstEventDate) {
+      // Extract eventDate from first venue session - must be present
+      let firstEventDate: string = '';
+      if (data.venueSessions && data.venueSessions.length > 0 && data.venueSessions[0].eventDate) {
+        firstEventDate = String(data.venueSessions[0].eventDate);
+      } else if (enquiry?.eventDate) {
+        firstEventDate = new Date(enquiry.eventDate).toISOString().split('T')[0];
+      }
+
+      if (!firstEventDate || firstEventDate.trim() === '' || firstEventDate === 'undefined' || firstEventDate === 'null') {
         throw new Error("Event date is required. Please add at least one venue session with an event date.");
       }
 
       // Handle validUntil - provide default (30 days from now) if not provided
-      let validUntilDate: string | null = null;
-      if (data.validUntil && data.validUntil.trim() !== '') {
+      let validUntilDate: string;
+      if (data.validUntil && typeof data.validUntil === 'string' && data.validUntil.trim() !== '') {
         validUntilDate = new Date(data.validUntil).toISOString();
       } else {
         // Default to 30 days from now if not provided
@@ -393,23 +404,40 @@ export default function QuotationForm({
         defaultDate.setDate(defaultDate.getDate() + 30);
         validUntilDate = defaultDate.toISOString();
       }
+      
+      // Ensure validUntilDate is a valid ISO string
+      if (!validUntilDate || validUntilDate.trim() === '' || isNaN(new Date(validUntilDate).getTime())) {
+        const defaultDate = new Date();
+        defaultDate.setDate(defaultDate.getDate() + 30);
+        validUntilDate = defaultDate.toISOString();
+      }
 
       const { venueSubtotal, roomSubtotal, venueGstAmount, roomGstAmount, venueTotal, roomTotal, finalAmount } = totals;
       
-      // Create quotation data that matches the current database schema exactly
-      const quotationData = {
+      // Debug: Log all values before creating quotation data
+      console.log('🔍 Quotation Data Debug:', {
         enquiryId,
-        eventDate: firstEventDate,
+        userId,
+        firstEventDate,
+        validUntilDate,
+        enquiry: enquiry ? 'loaded' : 'not loaded'
+      });
+      
+      // Create quotation data that matches the current database schema exactly
+      // Ensure all values are properly set and not undefined/null
+      const quotationData: any = {
+        enquiryId: enquiryId, // Already validated as non-empty string
+        eventDate: firstEventDate, // Already validated as non-empty string
         eventType: enquiry?.eventType || 'wedding',
         clientName: clientName || enquiry?.clientName || '',
         clientEmail: enquiry?.email || '',
         clientPhone: enquiry?.contactNumber || '',
-        createdBy: userId,
-        totalAmount: finalAmount.toString(),
+        createdBy: userId, // Already validated as non-empty string
+        totalAmount: String(finalAmount),
         discountPercent: '0',
         discountAmount: '0',
-        finalAmount: finalAmount.toString(),
-        validUntil: validUntilDate,
+        finalAmount: String(finalAmount),
+        validUntil: validUntilDate, // Already validated as valid ISO string
         terms: `BANQUET PROPOSAL - ${data.quotationType.replace('_', ' ').toUpperCase()}
 
 CLIENT: ${clientName}
@@ -454,6 +482,22 @@ Check-out: ${data.checkOutTime}
 ${data.terms}`,
       };
 
+      // Final validation - ensure all required fields are present
+      if (!quotationData.enquiryId || quotationData.enquiryId === 'undefined' || quotationData.enquiryId === 'null') {
+        throw new Error("Enquiry ID is missing or invalid.");
+      }
+      if (!quotationData.createdBy || quotationData.createdBy === 'undefined' || quotationData.createdBy === 'null') {
+        throw new Error("User ID is missing. Please log in again.");
+      }
+      if (!quotationData.eventDate || quotationData.eventDate === 'undefined' || quotationData.eventDate === 'null') {
+        throw new Error("Event date is missing.");
+      }
+      if (!quotationData.validUntil || quotationData.validUntil === 'undefined' || quotationData.validUntil === 'null') {
+        throw new Error("Valid until date is missing.");
+      }
+
+      console.log('📤 Sending quotation data:', quotationData);
+      
       return await apiRequest('POST', '/api/quotations', quotationData);
     },
     onSuccess: () => {
@@ -1038,7 +1082,13 @@ ${data.terms}`,
               </Button>
               <Button 
                 type="submit" 
-                disabled={createQuotationMutation.isPending}
+                disabled={
+                  createQuotationMutation.isPending || 
+                  !user || 
+                  !enquiryId || 
+                  !enquiry ||
+                  (venueSessions.length === 0 || !venueSessions[0]?.eventDate)
+                }
                 className="min-w-[120px]"
               >
                 {createQuotationMutation.isPending ? "Creating..." : "Create Quotation"}
