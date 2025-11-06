@@ -90,14 +90,28 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
     queryKey: ["/api/quotations/packages"],
   });
 
+  // Ensure enquiryId is always a string
+  const enquiryId = enquiry?.id ? String(enquiry.id) : '';
+  
+  // Ensure eventDate is always a valid string
+  const eventDate = enquiry?.eventDate 
+    ? new Date(enquiry.eventDate).toISOString().split('T')[0] 
+    : new Date().toISOString().split('T')[0]; // Fallback to today if missing
+  
+  // Ensure createdBy is set from user if available
+  const createdBy = user ? (String((user as any)?.id || (user as any)?._id || '')) : '';
+  
+  // Ensure validUntil is always a Date
+  const validUntil = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days from now
+
   const initialDefaults = {
-    enquiryId: enquiry.id!,
+    enquiryId: enquiryId,
     quotationNumber: "",
-    clientName: enquiry.clientName,
-    clientEmail: enquiry.email,
-    clientPhone: enquiry.contactNumber,
-    eventType: enquiry.eventType || "wedding",
-    eventDate: enquiry.eventDate ? new Date(enquiry.eventDate).toISOString().split('T')[0] : "",
+    clientName: enquiry?.clientName || "",
+    clientEmail: enquiry?.email || "",
+    clientPhone: enquiry?.contactNumber || "",
+    eventType: enquiry?.eventType || "wedding",
+    eventDate: eventDate,
     venueRentalItems: [] as any[],
     venueRentalTotal: 0,
     roomPackages: [] as any[],
@@ -111,9 +125,9 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
     discountExceedsLimit: false,
     finalTotal: 0,
     includeGST: false,
-    createdBy: "",
+    createdBy: createdBy,
     status: 'draft' as const,
-    validUntil: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days from now
+    validUntil: validUntil,
   };
 
   const form = useForm<z.infer<typeof formSchema>>({
@@ -121,6 +135,30 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
     defaultValues: initialDefaults,
     shouldUnregister: true,
   });
+
+  // Update form when user loads (for live site where user might load asynchronously)
+  useEffect(() => {
+    if (user) {
+      const userId = String((user as any)?.id || (user as any)?._id || '');
+      if (userId) {
+        form.setValue('createdBy', userId, { shouldValidate: false });
+      }
+    }
+  }, [user, form]);
+
+  // Ensure enquiryId and eventDate are always set
+  useEffect(() => {
+    if (enquiry?.id) {
+      form.setValue('enquiryId', String(enquiry.id), { shouldValidate: false });
+    }
+    if (enquiry?.eventDate) {
+      const dateStr = new Date(enquiry.eventDate).toISOString().split('T')[0];
+      form.setValue('eventDate', dateStr, { shouldValidate: false });
+    }
+    // Ensure validUntil is always set
+    const validUntilDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    form.setValue('validUntil', validUntilDate, { shouldValidate: false });
+  }, [enquiry, form]);
 
   const { fields: venueFields, append: appendVenue, remove: removeVenue } = useFieldArray({
     control: form.control,
@@ -852,9 +890,25 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
       
       console.log('🔍 menuPackagesData:', JSON.stringify(menuPackagesData, null, 2));
 
-      // Ensure all required fields are properly set
-      const userId = (user as any)?.id || (user as any)?._id;
-      if (!userId) {
+      // Get values from form (these should already be set by useEffect hooks)
+      const formEnquiryId = updatedData.enquiryId || String(enquiry?.id || '');
+      const formEventDate = updatedData.eventDate || (enquiry?.eventDate 
+        ? new Date(enquiry.eventDate).toISOString().split('T')[0] 
+        : new Date().toISOString().split('T')[0]);
+      const formCreatedBy = updatedData.createdBy || String((user as any)?.id || (user as any)?._id || '');
+      const formValidUntil = updatedData.validUntil || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+      // Validate required fields
+      if (!formEnquiryId) {
+        toast({
+          title: "Error",
+          description: "Enquiry ID is required. Please refresh the page and try again.",
+          variant: "destructive",
+        });
+        throw new Error("Enquiry ID is required");
+      }
+
+      if (!formCreatedBy) {
         toast({
           title: "Error",
           description: "User information not found. Please refresh the page and try again.",
@@ -863,12 +917,7 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
         throw new Error("User information not found");
       }
 
-      // Ensure eventDate is set
-      const eventDate = updatedData.eventDate || (enquiry.eventDate 
-        ? new Date(enquiry.eventDate).toISOString().split('T')[0] 
-        : '');
-      
-      if (!eventDate) {
+      if (!formEventDate) {
         toast({
           title: "Error",
           description: "Event date is required. Please set an event date in the enquiry.",
@@ -877,17 +926,14 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
         throw new Error("Event date is required");
       }
 
-      // Ensure validUntil is set
-      const validUntil = updatedData.validUntil || initialDefaults.validUntil;
-
       // Use updated data with recalculated totals (which includes discount and GST)
       const formData = {
         ...updatedData,
-        enquiryId: enquiry.id!,
+        enquiryId: formEnquiryId,
         // quotationNumber is optional - will be generated by server
-        eventDate: eventDate,
-        createdBy: userId,
-        validUntil: validUntil instanceof Date ? validUntil.toISOString() : validUntil,
+        eventDate: formEventDate,
+        createdBy: formCreatedBy,
+        validUntil: formValidUntil instanceof Date ? formValidUntil.toISOString() : (typeof formValidUntil === 'string' ? formValidUntil : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()),
         menuPackages: menuPackagesData,
         venueRentalTotal: updatedData.venueRentalTotal || venueTotal || 0,
         roomQuotationTotal: updatedData.roomQuotationTotal || roomQuotationTotal || 0,

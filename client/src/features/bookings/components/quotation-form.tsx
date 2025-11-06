@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,8 +11,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { Badge } from "@/components/ui/badge";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
 import { Plus, Trash2, Calculator, Utensils } from "lucide-react";
 import { z } from "zod";
 import MenuSelectionFlow from "@/features/quotations/components/menu-selection-flow";
@@ -138,9 +140,16 @@ export default function QuotationForm({
 }: QuotationFormProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const [showMenuSelection, setShowMenuSelection] = useState(false);
   const [selectedMenuPackage, setSelectedMenuPackage] = useState<string>('');
   const [customMenuItems, setCustomMenuItems] = useState<any>({});
+
+  // Fetch enquiry details to get eventDate and eventType
+  const { data: enquiry } = useQuery<any>({
+    queryKey: [`/api/enquiries/${enquiryId}`],
+    enabled: open && !!enquiryId,
+  });
 
   const form = useForm<z.infer<typeof quotationFormSchema>>({
     resolver: zodResolver(quotationFormSchema),
@@ -359,16 +368,48 @@ export default function QuotationForm({
         throw new Error("Invalid quotation totals. Please check all rates and quantities.");
       }
 
+      // Get user ID for createdBy
+      const userId = user ? (String((user as any)?.id || (user as any)?._id || '')) : '';
+      if (!userId) {
+        throw new Error("User authentication required. Please log in again.");
+      }
+
+      // Extract eventDate from first venue session
+      const firstEventDate = data.venueSessions && data.venueSessions.length > 0 && data.venueSessions[0].eventDate
+        ? data.venueSessions[0].eventDate
+        : (enquiry?.eventDate ? new Date(enquiry.eventDate).toISOString().split('T')[0] : '');
+
+      if (!firstEventDate) {
+        throw new Error("Event date is required. Please add at least one venue session with an event date.");
+      }
+
+      // Handle validUntil - provide default (30 days from now) if not provided
+      let validUntilDate: string | null = null;
+      if (data.validUntil && data.validUntil.trim() !== '') {
+        validUntilDate = new Date(data.validUntil).toISOString();
+      } else {
+        // Default to 30 days from now if not provided
+        const defaultDate = new Date();
+        defaultDate.setDate(defaultDate.getDate() + 30);
+        validUntilDate = defaultDate.toISOString();
+      }
+
       const { venueSubtotal, roomSubtotal, venueGstAmount, roomGstAmount, venueTotal, roomTotal, finalAmount } = totals;
       
       // Create quotation data that matches the current database schema exactly
       const quotationData = {
         enquiryId,
+        eventDate: firstEventDate,
+        eventType: enquiry?.eventType || 'wedding',
+        clientName: clientName || enquiry?.clientName || '',
+        clientEmail: enquiry?.email || '',
+        clientPhone: enquiry?.contactNumber || '',
+        createdBy: userId,
         totalAmount: finalAmount.toString(),
         discountPercent: '0',
         discountAmount: '0',
         finalAmount: finalAmount.toString(),
-        validUntil: data.validUntil ? new Date(data.validUntil).toISOString() : null,
+        validUntil: validUntilDate,
         terms: `BANQUET PROPOSAL - ${data.quotationType.replace('_', ' ').toUpperCase()}
 
 CLIENT: ${clientName}
