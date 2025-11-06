@@ -1,38 +1,435 @@
-export function generateQuotationHTML(quotation: any): string {
-  const formatDate = (dateStr: string | undefined) => {
-    if (!dateStr) return 'N/A';
-    if (dateStr.includes('/')) {
-      const [day, month, year] = dateStr.split('/');
+import * as fs from 'fs';
+import * as path from 'path';
+
+// Brand colors from FPDF code
+const PRIMARY_GOLD = '#B49546'; // rgb(180, 149, 70)
+const FADED_GOLD = '#E6D5A3';  // rgb(230, 213, 163)
+const ZEBRA_GRAY = '#F5F5F5';  // rgb(245, 245, 245)
+const TITLE_GOLD = '#554614';  // rgb(85, 70, 20)
+const TITLE_GRAY = '#3C3C3C';  // rgb(60, 60, 60)
+const BODY_TEXT = '#282828';   // rgb(40, 40, 40)
+const FOOTER_GRAY = '#787878'; // rgb(120, 120, 120)
+
+// Helper function to get logo as base64
+function getLogoBase64(): string {
+  try {
+    // Get directory path using import.meta.url (ES modules) or __dirname (CommonJS)
+    let currentDir: string;
+    try {
+      // Try ES modules approach first
+      if (typeof import.meta !== 'undefined' && import.meta.url) {
+        const fileUrl = new URL(import.meta.url);
+        let filePath = fileUrl.pathname;
+        // On Windows, remove leading slash from path
+        if (process.platform === 'win32' && filePath.startsWith('/')) {
+          filePath = filePath.substring(1);
+        }
+        currentDir = path.dirname(filePath);
+      } else if (typeof __dirname !== 'undefined') {
+        // Fallback to __dirname (CommonJS)
+        currentDir = __dirname;
+      } else {
+        // If both fail, use process.cwd()
+        currentDir = process.cwd();
+      }
+    } catch {
+      // If both fail, use process.cwd()
+      currentDir = process.cwd();
+    }
+
+    // Try multiple possible paths
+    const possiblePaths = [
+      // From project root (when running from root) - most common case
+      path.join(process.cwd(), 'attached_assets', 'Palm Springs Logo resort_1756665272163.png'),
+      // From server/utils directory (go up 2 levels from server/utils)
+      path.join(currentDir, '..', '..', 'attached_assets', 'Palm Springs Logo resort_1756665272163.png'),
+      // From server directory (one level up)
+      path.join(currentDir, '..', 'attached_assets', 'Palm Springs Logo resort_1756665272163.png'),
+      // Also try alternative logo files
+      path.join(process.cwd(), 'attached_assets', 'Palm Springs Logo resort_1756665242611.png'),
+      path.join(currentDir, '..', '..', 'attached_assets', 'Palm Springs Logo resort_1756665242611.png'),
+    ];
+    
+    for (const logoPath of possiblePaths) {
       try {
-        return new Date(`${year}-${month}-${day}`).toLocaleDateString('en-IN', { year: 'numeric', month: 'short', day: 'numeric' });
-      } catch {
-        return dateStr;
+        const normalizedPath = path.normalize(logoPath);
+        if (fs.existsSync(normalizedPath)) {
+          const imageBuffer = fs.readFileSync(normalizedPath);
+          const base64 = imageBuffer.toString('base64');
+          const dataUri = `data:image/png;base64,${base64}`;
+          // Verify the data URI is valid (should be at least 100 chars for a real image)
+          if (dataUri.length > 100 && dataUri.startsWith('data:image/png;base64,')) {
+            return dataUri;
+          }
+        }
+      } catch (err) {
+        // Continue to next path
+        continue;
       }
     }
-    try {
-      return new Date(dateStr).toLocaleDateString('en-IN', { year: 'numeric', month: 'short', day: 'numeric' });
-    } catch {
-      return dateStr;
-    }
-  };
+  } catch (error) {
+    // Logo not found, will use text fallback
+    // Don't log in production to avoid noise
+  }
+  return '';
+}
 
+export function generateQuotationHTML(quotation: any): string {
   const formatCurrency = (amount: number) => {
     return `₹${amount.toLocaleString('en-IN')}`;
   };
 
-  const venueRentalTotal = quotation.venueRentalTotal || 0;
-  const roomQuotationTotal = quotation.roomQuotationTotal || 0;
-  const menuTotal = quotation.menuTotal || 0;
-  const subtotal = venueRentalTotal + roomQuotationTotal + menuTotal;
-  const grandTotal = quotation.grandTotal || subtotal;
-  const gstAmount = quotation.includeGST && grandTotal > subtotal ? (grandTotal - subtotal) : 0;
+  // Get base totals (before discount and GST)
+  const venueBaseTotal = quotation.venueRentalItems?.reduce((sum: number, item: any) => sum + (Number(item.sessionRate) || 0), 0) || 0;
+  const roomBaseTotal = quotation.roomPackages?.reduce((sum: number, item: any) => {
+    const rate = Number(item.rate) || 0;
+    const numRooms = Number(item.numberOfRooms) || Number(item.requestedRooms) || 1;
+    const baseRoomAmount = rate * numRooms;
+    // Include extra person charges if available
+    const extraPersons = Math.max(0, (Number(item.totalOccupancy) || 0) - ((item.defaultOccupancy || 2) * numRooms));
+    const extraPersonCharges = extraPersons * (Number(item.extraPersonRate) || 0);
+    return sum + baseRoomAmount + extraPersonCharges;
+  }, 0) || 0;
+  const menuBaseTotal = quotation.menuPackages?.reduce((sum: number, pkg: any) => {
+    const packagePrice = Number(pkg.price) || 0;
+    const guestCount = Number(pkg.guestCount) || Number(pkg.quantity) || quotation.expectedGuests || 0;
+    const basePackageTotal = packagePrice * guestCount;
+    // Add additional items if any
+    const additionalTotal = (pkg.selectedItems || []).reduce((itemSum: number, item: any) => {
+      if (!item.isPackageItem && item.additionalPrice) {
+        const qty = Number(item.quantity) || 1;
+        return itemSum + (Number(item.additionalPrice) * qty);
+      }
+      return itemSum;
+    }, 0);
+    return sum + basePackageTotal + additionalTotal;
+  }, 0) || 0;
+  
+  const totalBase = venueBaseTotal + roomBaseTotal + menuBaseTotal;
+  
+  // Apply discount on base prices
   const discountAmount = quotation.discountAmount || 0;
+  const discountType = quotation.discountType || 'percentage';
+  const discountValue = quotation.discountValue || 0;
+  
+  // Calculate discount per category (proportional if fixed discount)
+  let venueDiscountAmount = 0;
+  let roomDiscountAmount = 0;
+  let menuDiscountAmount = 0;
+  
+  if (discountAmount > 0 && totalBase > 0) {
+    if (discountType === 'percentage') {
+      venueDiscountAmount = (venueBaseTotal * discountValue) / 100;
+      roomDiscountAmount = (roomBaseTotal * discountValue) / 100;
+      menuDiscountAmount = (menuBaseTotal * discountValue) / 100;
+    } else {
+      // Fixed discount - distribute proportionally
+      const discountRatio = Math.min(discountAmount, totalBase) / totalBase;
+      venueDiscountAmount = venueBaseTotal * discountRatio;
+      roomDiscountAmount = roomBaseTotal * discountRatio;
+      menuDiscountAmount = menuBaseTotal * discountRatio;
+    }
+  }
+  
+  // Base amounts after discount
+  const venueBaseAfterDiscount = venueBaseTotal - venueDiscountAmount;
+  const roomBaseAfterDiscount = roomBaseTotal - roomDiscountAmount;
+  const menuBaseAfterDiscount = menuBaseTotal - menuDiscountAmount;
+  const subtotalAfterDiscount = venueBaseAfterDiscount + roomBaseAfterDiscount + menuBaseAfterDiscount;
+  
+  // Calculate GST on discounted amounts (per category rules)
+  const includeGST = quotation.includeGST || false;
+  
+  // GST calculation helper
+  const calculateGST = (amount: number, itemType: 'venue' | 'room' | 'menu', roomRate?: number) => {
+    if (!includeGST) return 0;
+    switch (itemType) {
+      case 'venue':
+        return amount * 0.18; // 18% GST for venue
+      case 'room':
+        // 5% GST if room rate <= ₹7,500, else 18% GST
+        const gstRate = (roomRate && roomRate > 7500) ? 0.18 : 0.05;
+        return amount * gstRate;
+      case 'menu':
+        return amount * 0.18; // 18% GST for menu
+      default:
+        return 0;
+    }
+  };
+  
+  // Calculate GST per category
+  const venueGST = calculateGST(venueBaseAfterDiscount, 'venue');
+  const roomGST = quotation.roomPackages?.reduce((sum: number, item: any) => {
+    const rate = Number(item.rate) || 0;
+    const numRooms = Number(item.numberOfRooms) || Number(item.requestedRooms) || 1;
+    const baseRoomAmount = rate * numRooms;
+    const extraPersons = Math.max(0, (Number(item.totalOccupancy) || 0) - ((item.defaultOccupancy || 2) * numRooms));
+    const extraPersonCharges = extraPersons * (Number(item.extraPersonRate) || 0);
+    const itemBaseTotal = baseRoomAmount + extraPersonCharges;
+    const itemDiscount = roomBaseTotal > 0 ? (itemBaseTotal * roomDiscountAmount / roomBaseTotal) : 0;
+    const itemBaseAfterDiscount = itemBaseTotal - itemDiscount;
+    return sum + calculateGST(itemBaseAfterDiscount, 'room', rate);
+  }, 0) || 0;
+  const menuGST = calculateGST(menuBaseAfterDiscount, 'menu');
+  
+  const totalGST = venueGST + roomGST + menuGST;
+  
+  // Final totals (with GST)
+  const venueRentalTotal = venueBaseAfterDiscount + venueGST;
+  const roomQuotationTotal = roomBaseAfterDiscount + roomGST;
+  const menuTotal = menuBaseAfterDiscount + menuGST;
+  const grandTotal = venueRentalTotal + roomQuotationTotal + menuTotal;
   const finalTotal = quotation.finalTotal || grandTotal;
 
-  // Capitalize first letter
-  const capitalizeFirst = (str: string) => {
-    return str ? str.charAt(0).toUpperCase() + str.slice(1) : '';
+  // Check if quotation has food
+  const menuPackages = quotation.menuPackages || [];
+  const hasFood = menuPackages.length > 0 || menuTotal > 0 || (quotation.quotationType && quotation.quotationType.includes('food'));
+
+  // Get logo
+  const logoBase64 = getLogoBase64();
+  // Debug: Log if logo was found (remove in production)
+  if (!logoBase64) {
+    console.warn('[PDF] Logo not found - will render without logo');
+  } else {
+    console.log('[PDF] Logo loaded successfully, length:', logoBase64.length);
+  }
+
+  // Group venue rental items by event date
+  const venueRentalItems = quotation.venueRentalItems || [];
+  const venuesByDay: { [key: string]: any[] } = {};
+  venueRentalItems.forEach((venue: any) => {
+    const dateKey = venue.eventDate || 'unknown';
+    if (!venuesByDay[dateKey]) {
+      venuesByDay[dateKey] = [];
+    }
+    venuesByDay[dateKey].push(venue);
+  });
+  const sortedVenueDays = Object.keys(venuesByDay).sort((a, b) => {
+    try {
+      return new Date(a).getTime() - new Date(b).getTime();
+    } catch {
+      return 0;
+    }
+  });
+
+  // Group room packages by event date
+  const roomPackages = quotation.roomPackages || [];
+  const roomsByDay: { [key: string]: any[] } = {};
+  roomPackages.forEach((room: any) => {
+    const dateKey = room.eventDate || quotation.eventDate || 'unknown';
+    if (!roomsByDay[dateKey]) {
+      roomsByDay[dateKey] = [];
+    }
+    roomsByDay[dateKey].push(room);
+  });
+  const sortedRoomDays = Object.keys(roomsByDay).sort((a, b) => {
+    try {
+      return new Date(a).getTime() - new Date(b).getTime();
+    } catch {
+      return 0;
+    }
+  });
+  
+  if (sortedRoomDays.length === 0 && roomPackages.length > 0) {
+    roomsByDay[quotation.eventDate || 'unknown'] = roomPackages;
+    sortedRoomDays.push(quotation.eventDate || 'unknown');
+  }
+
+  // Calculate room totals by day
+  const roomTotalsByDay: { [key: string]: { totalRooms: number; totalOccupancy: number; subtotal: number } } = {};
+  sortedRoomDays.forEach((day) => {
+    const rooms = roomsByDay[day];
+    const totalRooms = rooms.reduce((sum: number, r: any) => sum + (Number(r.numberOfRooms) || Number(r.requestedRooms) || 1), 0);
+    const totalOccupancy = rooms.reduce((sum: number, r: any) => sum + (Number(r.totalOccupancy) || 0), 0);
+    const subtotal = rooms.reduce((sum: number, r: any) => {
+      const rate = Number(r.rate) || 0;
+      const numRooms = Number(r.numberOfRooms) || Number(r.requestedRooms) || 1;
+      return sum + (rate * numRooms);
+    }, 0);
+    roomTotalsByDay[day] = { totalRooms, totalOccupancy, subtotal };
+  });
+
+  // Get venue area
+  const getVenueArea = (venue: any) => {
+    return venue.area || venue.venueSpace?.match(/\d+/)?.[0] || 'N/A';
   };
+
+  // Prepare room detail rows with day labels for merging
+  const roomDetailRows: Array<{ day: string; category: string; rate: number; rooms: number; occupancy: number; subtotal: number }> = [];
+  sortedRoomDays.forEach((dayKey, dayIndex) => {
+    const dayRooms = roomsByDay[dayKey];
+    dayRooms.forEach((room: any) => {
+      const rate = Number(room.rate) || 0;
+      const numRooms = Number(room.numberOfRooms) || Number(room.requestedRooms) || 1;
+      const occupancy = Number(room.totalOccupancy) || 0;
+      const subtotal = rate * numRooms;
+      roomDetailRows.push({
+        day: `Day ${dayIndex + 1}`,
+        category: room.category || 'N/A',
+        rate,
+        rooms: numRooms,
+        occupancy,
+        subtotal
+      });
+    });
+  });
+
+  // Menu packages data (only if has food)
+  let menuPackageTotals: any[] = [];
+  let foodMenuDetails: { [itemType: string]: { [day: string]: { [meal: string]: string } } } = {};
+  let hiteaMenuItems: { [itemType: string]: { [day: string]: string } } = {};
+  let additionalItems: Array<{ name: string; rate: number }> = [];
+
+  if (hasFood) {
+    // Calculate guest counts per menu package
+    menuPackageTotals = menuPackages.map((pkg: any) => {
+      const guestCount = pkg.guestCount || pkg.quantity || quotation.expectedGuests || 0;
+      const ratePerPerson = pkg.price || 0;
+      const total = ratePerPerson * guestCount;
+      return { ...pkg, guestCount, ratePerPerson, total };
+    });
+
+    // Food menu details - organize by item type and day/meal
+    menuPackages.forEach((pkg: any, pkgIndex: number) => {
+      const selectedItems = pkg.selectedItems || [];
+      selectedItems.forEach((item: any) => {
+        const itemType = item.name || item.itemType || 'Unknown';
+        
+        // Skip Hi-Tea items (they go in a separate section)
+        const itemName = (item.name || '').toLowerCase();
+        if (itemName.includes('tea') || itemName.includes('coffee') || itemName.includes('snack') || 
+            itemName.includes('pastry') || itemName.includes('hitea') || itemName.includes('late-night') ||
+            itemName.includes('hi-tea') || itemName.includes('hi tea')) {
+          return; // Skip this item for food menu details
+        }
+        
+        if (!foodMenuDetails[itemType]) {
+          foodMenuDetails[itemType] = {};
+        }
+        
+        const numDays = sortedVenueDays.length || 1;
+        
+        // Check if item has specific day/meal quantities (day1Lunch, day1Dinner, etc.)
+        if (item.day1Lunch !== undefined || item.day1Dinner !== undefined || 
+            item.day2Lunch !== undefined || item.day2Dinner !== undefined) {
+          // Item has explicit day/meal quantities
+          if (item.day1Lunch !== undefined && item.day1Lunch !== null) {
+            if (!foodMenuDetails[itemType]['Day 1']) foodMenuDetails[itemType]['Day 1'] = {};
+            foodMenuDetails[itemType]['Day 1']['Lunch'] = item.day1Lunch.toString();
+          }
+          if (item.day1Dinner !== undefined && item.day1Dinner !== null) {
+            if (!foodMenuDetails[itemType]['Day 1']) foodMenuDetails[itemType]['Day 1'] = {};
+            foodMenuDetails[itemType]['Day 1']['Dinner'] = item.day1Dinner.toString();
+          }
+          if (item.day2Lunch !== undefined && item.day2Lunch !== null) {
+            if (!foodMenuDetails[itemType]['Day 2']) foodMenuDetails[itemType]['Day 2'] = {};
+            foodMenuDetails[itemType]['Day 2']['Lunch'] = item.day2Lunch.toString();
+          }
+          if (item.day2Dinner !== undefined && item.day2Dinner !== null) {
+            if (!foodMenuDetails[itemType]['Day 2']) foodMenuDetails[itemType]['Day 2'] = {};
+            foodMenuDetails[itemType]['Day 2']['Dinner'] = item.day2Dinner.toString();
+          }
+        } else if (item.day !== undefined && item.mealType !== undefined) {
+          // Item has explicit day and mealType
+          const dayKey = `Day ${item.day}`;
+          const meal = item.mealType.charAt(0).toUpperCase() + item.mealType.slice(1).toLowerCase();
+          if (!foodMenuDetails[itemType][dayKey]) foodMenuDetails[itemType][dayKey] = {};
+          foodMenuDetails[itemType][dayKey][meal] = (item.quantity || 1).toString();
+        } else if (item.day1Quantity !== undefined || item.day2Quantity !== undefined) {
+          // Item has day-specific quantities (but no meal type specified)
+          // Default to Lunch for Day 1, Dinner for Day 2, or distribute evenly
+          if (item.day1Quantity !== undefined && item.day1Quantity !== null) {
+            if (!foodMenuDetails[itemType]['Day 1']) foodMenuDetails[itemType]['Day 1'] = {};
+            foodMenuDetails[itemType]['Day 1']['Lunch'] = item.day1Quantity.toString();
+          }
+          if (item.day2Quantity !== undefined && item.day2Quantity !== null) {
+            if (!foodMenuDetails[itemType]['Day 2']) foodMenuDetails[itemType]['Day 2'] = {};
+            foodMenuDetails[itemType]['Day 2']['Lunch'] = item.day2Quantity.toString();
+          }
+        } else if (item.quantity !== undefined && item.quantity !== null) {
+          // Item has a general quantity - try to infer day/meal from context
+          // If no day/meal info, default to Day 1 Lunch
+          if (!foodMenuDetails[itemType]['Day 1']) foodMenuDetails[itemType]['Day 1'] = {};
+          if (!foodMenuDetails[itemType]['Day 1']['Lunch']) {
+            foodMenuDetails[itemType]['Day 1']['Lunch'] = item.quantity.toString();
+          }
+        }
+      });
+    });
+
+    // Hi-Tea & Late-Night Phera menu items
+    menuPackages.forEach((pkg: any) => {
+      const selectedItems = pkg.selectedItems || [];
+      selectedItems.forEach((item: any) => {
+        const itemName = (item.name || '').toLowerCase();
+        // Check for Hi-Tea related items
+        if (itemName.includes('tea') || itemName.includes('coffee') || itemName.includes('snack') || 
+            itemName.includes('pastry') || itemName.includes('hitea') || itemName.includes('late-night') ||
+            itemName.includes('hi-tea') || itemName.includes('hi tea') || itemName.includes('welcome drink') ||
+            itemName.includes('dry dessert') || itemName.includes('cookie')) {
+          const itemType = item.name || 'Unknown';
+          if (!hiteaMenuItems[itemType]) {
+            hiteaMenuItems[itemType] = {};
+          }
+          
+          const numDays = sortedVenueDays.length || 1;
+          
+          // Check if item has day-specific quantities
+          if (item.day1Quantity !== undefined || item.day2Quantity !== undefined) {
+            if (item.day1Quantity !== undefined && item.day1Quantity !== null) {
+              hiteaMenuItems[itemType]['Day 1'] = item.day1Quantity.toString();
+            }
+            if (item.day2Quantity !== undefined && item.day2Quantity !== null) {
+              hiteaMenuItems[itemType]['Day 2'] = item.day2Quantity.toString();
+            }
+          } else if (item.day !== undefined) {
+            // Item has explicit day
+            const dayKey = `Day ${item.day}`;
+            hiteaMenuItems[itemType][dayKey] = (item.quantity || 'Yes').toString();
+          } else if (item.quantity !== undefined && item.quantity !== null) {
+            // Item has a general quantity - set for all days
+            for (let dayNum = 1; dayNum <= numDays; dayNum++) {
+              const dayKey = `Day ${dayNum}`;
+              if (!hiteaMenuItems[itemType][dayKey]) {
+                hiteaMenuItems[itemType][dayKey] = item.quantity.toString();
+              }
+            }
+          } else {
+            // No quantity specified - default to 'Yes' for all days
+            for (let dayNum = 1; dayNum <= numDays; dayNum++) {
+              const dayKey = `Day ${dayNum}`;
+              if (!hiteaMenuItems[itemType][dayKey]) {
+                hiteaMenuItems[itemType][dayKey] = 'Yes';
+              }
+            }
+          }
+        }
+      });
+    });
+
+    // Additional items per person
+    menuPackages.forEach((pkg: any) => {
+      const additionalItemsList = (pkg.selectedItems || []).filter((item: any) => 
+        (!item.isPackageItem || item.isPackageItem === false) || (item.additionalPrice && item.additionalPrice > 0)
+      );
+      additionalItemsList.forEach((item: any) => {
+        if (item.additionalPrice && item.additionalPrice > 0) {
+          additionalItems.push({
+            name: item.name,
+            rate: item.additionalPrice
+          });
+        }
+      });
+      (pkg.customItems || []).forEach((item: any) => {
+        if (item.price && item.price > 0) {
+          additionalItems.push({
+            name: item.name,
+            rate: item.price
+          });
+        }
+      });
+    });
+  }
 
   return `
 <!DOCTYPE html>
@@ -40,8 +437,19 @@ export function generateQuotationHTML(quotation: any): string {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Quotation ${quotation.quotationNumber}</title>
+  <title>Event Proposal - ${quotation.quotationNumber || 'DRAFT'}</title>
   <style>
+    @page {
+      margin: 20mm 15mm 25mm 15mm;
+      @bottom-center {
+        content: "Palm Springs Resort | Event Proposal | www.palmspringsindia.com";
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        font-size: 9px;
+        color: ${FOOTER_GRAY};
+        margin-top: 8mm;
+      }
+    }
+
     * {
       margin: 0;
       padding: 0;
@@ -50,137 +458,120 @@ export function generateQuotationHTML(quotation: any): string {
     
     body {
       font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      font-size: 13px;
+      font-size: 12px;
       line-height: 1.6;
-      color: #1f2937;
+      color: ${BODY_TEXT};
       background: white;
-      padding: 30px 20px;
+      padding: 20px;
     }
     
     .container {
       max-width: 1000px;
       margin: 0 auto;
       background: white;
+      position: relative;
     }
 
-    /* Header Section */
-    .header-section {
-      margin-bottom: 20px;
-      border-bottom: 2px solid #2d5016;
-      padding-bottom: 15px;
-    }
-
-    .company-header {
+    /* Footer */
+    .footer {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
       text-align: center;
+      font-size: 9px;
+      color: ${FOOTER_GRAY};
+      padding: 8px 0;
+      border-top: 1px solid #e5e7eb;
+    }
+
+    /* Logo and Header */
+    .header-section {
+      margin-bottom: 25px;
+      text-align: center;
+      padding-top: 20px;
+    }
+
+    .logo-container {
       margin-bottom: 20px;
-    }
-
-    .company-name {
-      font-size: 28px;
-      font-weight: bold;
-      color: #2d5016;
-      margin-bottom: 5px;
-    }
-
-    .company-tagline {
-      font-size: 16px;
-      color: #4a6741;
-      font-weight: 300;
-    }
-
-    .salutation {
-      margin: 20px 0 15px 0;
-      font-size: 14px;
-    }
-
-    .quotation-header {
       display: flex;
-      justify-content: space-between;
+      justify-content: center;
       align-items: center;
-      margin-bottom: 15px;
-      padding: 12px;
-      background: #f0f8f0;
-      border: 1px solid #c8e6c8;
-      border-radius: 4px;
+      min-height: 120px;
     }
 
-    .quotation-number {
+    .logo-img {
+      max-height: 120px;
+      max-width: 375px;
+      width: auto;
+      height: auto;
+      object-fit: contain;
+      display: block;
+      margin: 0 auto;
+    }
+
+    .document-title {
       font-size: 18px;
       font-weight: bold;
-      color: #2d5016;
-    }
-
-    .status-badge {
-      display: inline-block;
-      padding: 4px 12px;
-      border-radius: 4px;
-      font-size: 11px;
-      font-weight: 600;
-      text-transform: uppercase;
-    }
-
-    .status-draft {
-      background: #f3f4f6;
-      color: #6b7280;
-      border: 1px solid #d1d5db;
-    }
-
-    .status-sent {
-      background: #2d5016;
-      color: white;
-    }
-
-    .booking-details {
+      color: ${TITLE_GOLD};
       margin: 15px 0;
-      padding: 12px;
-      background: #f9fafb;
-      border-left: 4px solid #2d5016;
+      text-align: center;
     }
 
-    .booking-details strong {
-      color: #2d5016;
+    /* Greeting Section */
+    .greeting-section {
+      margin: 20px 0;
+      font-size: 12px;
+      line-height: 1.8;
+      color: ${BODY_TEXT};
     }
 
-    /* Table Styles - Matching Your Format */
+    /* Section Titles */
     .section-title {
-      font-size: 16px;
+      font-size: 13px;
       font-weight: bold;
-      color: #2d5016;
-      margin: 20px 0 12px 0;
-      padding-bottom: 8px;
-      border-bottom: 2px solid #2d5016;
+      color: ${TITLE_GRAY};
+      margin: 25px 0 12px 0;
+      padding-bottom: 4px;
     }
 
+    /* Table Styles with Gold Headers */
     .table-wrapper {
       margin: 15px 0;
       overflow-x: auto;
+      page-break-inside: avoid;
+      break-inside: avoid;
     }
 
     table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 13px;
+      font-size: 10.5px;
       border: 1px solid #d1d5db;
+      page-break-inside: avoid;
+      break-inside: avoid;
     }
 
     table thead th {
-      background: #2d5016;
+      background: ${PRIMARY_GOLD};
       color: white;
-      padding: 10px 8px;
-      text-align: left;
-      font-weight: 600;
-      font-size: 12px;
-      border: 1px solid #1a3a0e;
+      padding: 8px 6px;
+      text-align: center;
+      font-weight: bold;
+      font-size: 11px;
+      border: 1px solid #9a7a38;
     }
 
     table tbody td {
-      padding: 10px 8px;
+      padding: 8px 6px;
       border: 1px solid #e5e7eb;
-      vertical-align: top;
+      vertical-align: middle;
+      text-align: center;
+      font-size: 10.5px;
     }
 
     table tbody tr:nth-child(even) {
-      background: #f0f8f0;
+      background: ${ZEBRA_GRAY};
     }
 
     table tbody tr:nth-child(odd) {
@@ -188,183 +579,113 @@ export function generateQuotationHTML(quotation: any): string {
     }
 
     table tbody tr.total-row {
-      background: #2d5016;
-      color: white;
+      background: ${FADED_GOLD};
       font-weight: bold;
-      font-size: 14px;
+      font-size: 11px;
     }
 
     table tbody tr.total-row td {
-      border: 1px solid #1a3a0e;
+      border: 1px solid #d1b887;
+    }
+
+    /* Merged first column for Room Plan Detail */
+    table.room-detail-table tbody tr td:first-child {
+      border-right: 1px solid #e5e7eb;
+    }
+
+    table.room-detail-table tbody tr:not(.total-row) td:first-child {
+      vertical-align: middle;
+    }
+
+    /* CSS for merged cells - we'll use rowspan via JavaScript-like approach in HTML */
+    .merged-cell {
+      border-bottom: none !important;
+    }
+
+    .merged-cell-content {
+      position: relative;
     }
 
     .text-right {
       text-align: right;
     }
 
-    .text-center {
-      text-align: center;
+    .text-left {
+      text-align: left;
     }
 
-    /* Menu Package Detailed View */
-    .menu-package-card {
-      margin: 15px 0;
-      border: 1px solid #d1d5db;
-      border-radius: 4px;
-      overflow: hidden;
-    }
-
-    .menu-package-header {
-      background: #2d5016;
-      color: white;
-      padding: 12px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-
-    .menu-package-name {
-      font-size: 15px;
-      font-weight: bold;
-    }
-
-    .menu-package-type {
+    /* Notes Section */
+    .notes-section {
+      margin-top: 10px;
       font-size: 11px;
-      padding: 3px 8px;
-      border-radius: 3px;
-      background: rgba(255, 255, 255, 0.2);
+      color: ${BODY_TEXT};
+      line-height: 1.6;
     }
 
-    .menu-package-body {
-      padding: 12px;
-      background: white;
+    .notes-section p {
+      margin-bottom: 4px;
     }
 
-    .menu-items-section {
-      margin: 12px 0;
+    /* Stay Summary */
+    .stay-summary {
+      margin: 15px 0;
+      padding: 10px;
+      font-size: 11px;
+      line-height: 1.6;
+      color: ${BODY_TEXT};
     }
 
-    .menu-items-title {
-      font-size: 12px;
-      font-weight: 600;
-      color: #2d5016;
-      margin-bottom: 8px;
-      padding-bottom: 4px;
-      border-bottom: 1px solid #e5e7eb;
-    }
-
-    .included-items {
-      background: #f0fdf4;
-      padding: 8px;
-      border-radius: 4px;
-      margin-bottom: 8px;
-    }
-
-    .additional-items {
-      background: #eff6ff;
-      padding: 8px;
-      border-radius: 4px;
-      margin-bottom: 8px;
-    }
-
-    .custom-items {
-      background: #faf5ff;
-      padding: 8px;
-      border-radius: 4px;
-      margin-bottom: 8px;
-    }
-
-    .menu-item-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 4px 0;
-      font-size: 12px;
-    }
-
-    .qty-badge {
-      display: inline-block;
-      padding: 2px 6px;
-      background: white;
-      border: 1px solid #d1d5db;
-      border-radius: 3px;
-      font-size: 10px;
-      margin-left: 8px;
-      font-weight: 600;
-    }
-
-    /* Check-in/Check-out Section */
-    .checkin-section {
-      margin: 20px 0;
-      padding: 12px;
-      background: #f0f8f0;
-      border-left: 4px solid #2d5016;
-    }
-
-    .checkin-section strong {
-      color: #2d5016;
-    }
-
-    /* Summary Section */
-    .summary-section {
+    /* Summary Amount Section */
+    .summary-amount-section {
       margin: 25px 0;
-      display: flex;
-      gap: 20px;
     }
 
     .summary-table {
-      flex: 1;
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 10.5px;
       border: 1px solid #d1d5db;
     }
 
     .summary-table thead th {
-      background: #2d5016;
+      background: ${PRIMARY_GOLD};
       color: white;
       text-align: center;
-      padding: 10px;
+      padding: 8px;
+      font-weight: bold;
+      font-size: 11px;
     }
 
     .summary-table tbody td {
-      padding: 10px 15px;
+      padding: 8px 12px;
+      border: 1px solid #e5e7eb;
+      text-align: left;
     }
 
-    .summary-table tbody td:first-child {
-      font-weight: 600;
+    .summary-table tbody td:last-child {
+      text-align: right;
     }
 
     .summary-table tbody tr:last-child {
-      background: #2d5016;
-      color: white;
+      background: ${FADED_GOLD};
       font-weight: bold;
-      font-size: 15px;
+      font-size: 11px;
     }
 
     .summary-table tbody tr:last-child td {
-      border: 1px solid #1a3a0e;
+      border: 1px solid #d1b887;
     }
 
     /* Terms & Conditions */
     .terms-section {
-      margin: 25px 0;
+      margin: 30px 0;
     }
 
     .terms-title {
-      font-size: 18px;
+      font-size: 13px;
       font-weight: bold;
-      color: #2d5016;
-      margin-bottom: 12px;
-      padding-bottom: 8px;
-      border-bottom: 2px solid #2d5016;
-      text-transform: uppercase;
-    }
-
-    .taxes-note {
-      background: #fffbf0;
-      border-left: 4px solid #f59e0b;
-      padding: 10px 12px;
+      color: ${TITLE_GRAY};
       margin-bottom: 15px;
-      font-weight: 600;
-      color: #92400e;
     }
 
     .terms-list {
@@ -374,168 +695,112 @@ export function generateQuotationHTML(quotation: any): string {
     }
 
     .terms-list li {
-      margin-bottom: 12px;
+      margin-bottom: 7px;
       padding-left: 0;
-      font-size: 13px;
+      font-size: 11px;
       line-height: 1.7;
+      color: ${BODY_TEXT};
     }
 
-    .terms-list li strong {
-      color: #2d5016;
+    .terms-list li::before {
+      content: "- ";
+      color: ${TITLE_GRAY};
+      font-weight: bold;
+      margin-right: 4px;
     }
 
     /* Contact Section */
     .contact-section {
-      margin-top: 30px;
+      margin-top: 40px;
       padding-top: 20px;
-      border-top: 2px solid #e5e7eb;
-    }
-
-    .contact-closing {
-      margin-bottom: 20px;
-      font-size: 14px;
-      line-height: 1.8;
-      color: #374151;
     }
 
     .contact-details {
-      background: #f9fafb;
-      padding: 15px;
-      border-radius: 4px;
-      border: 1px solid #e5e7eb;
+      font-size: 12px;
+      line-height: 1.8;
+      color: ${BODY_TEXT};
     }
 
     .contact-name {
-      font-size: 16px;
-      font-weight: bold;
-      color: #2d5016;
-      margin-bottom: 5px;
-    }
-
-    .contact-role {
-      font-size: 13px;
-      color: #6b7280;
-      margin-bottom: 10px;
-    }
-
-    .contact-info {
       font-size: 12px;
-      line-height: 1.8;
-      color: #4b5563;
+      font-weight: normal;
+      margin-bottom: 2px;
     }
 
-    .contact-info strong {
-      color: #2d5016;
-    }
-
-    /* Utility Classes */
-    .font-bold {
-      font-weight: 700;
-    }
-
-    .font-semibold {
-      font-weight: 600;
-    }
-
-    .text-muted {
-      color: #6b7280;
-    }
-
-    .mt-2 {
-      margin-top: 12px;
-    }
-
-    .mb-2 {
-      margin-bottom: 12px;
-    }
-
-    .highlight-note {
-      background: #fffbf0;
-      border-left: 4px solid #f59e0b;
-      padding: 10px 12px;
-      margin: 15px 0;
-      font-size: 12px;
-      font-weight: 600;
-      color: #92400e;
+    /* Page Break Controls */
+    .page-break {
+      page-break-before: always;
+      break-before: page;
     }
 
     @media print {
       body {
-        padding: 15px;
+        padding: 0;
       }
       
-      .menu-package-card,
-      .table-wrapper {
+      .table-wrapper,
+      table {
         page-break-inside: avoid;
+        break-inside: avoid;
+      }
+
+      tr {
+        page-break-inside: avoid;
+        break-inside: avoid;
+      }
+
+      .page-break {
+        page-break-before: always;
+        break-before: page;
       }
     }
   </style>
 </head>
 <body>
   <div class="container">
-    <!-- Company Header -->
+    <!-- Logo and Header -->
     <div class="header-section">
-      <div class="company-header">
-        <div class="company-name">Palm Springs Resort, Nashik</div>
-        <div class="company-tagline">Luxury Hotel & Banquet</div>
-      </div>
-
-      <!-- Salutation -->
-      <div class="salutation">
-        <p><strong>Dear Sir/Madam,</strong></p>
-        <p>Greetings of the day from hotel Palm Springs Resort, Nashik !!</p>
-        <p style="margin-top: 8px;">Thank you for considering <strong>Palm Springs Resort</strong> for your ${quotation.eventType ? capitalizeFirst(quotation.eventType) : 'function'} ${quotation.eventDate ? `in ${new Date(quotation.eventDate).getFullYear()}` : ''}. We are pleased to present this quotation based on our prior discussion.</p>
-      </div>
-    </div>
-
-    <!-- Quotation Header -->
-    <div class="quotation-header">
-      <div>
-        <div class="quotation-number">Quotation No: ${quotation.quotationNumber || 'DRAFT'}</div>
-        <div style="font-size: 11px; color: #6b7280; margin-top: 4px;">
-          Date: ${quotation.createdAt ? formatDate(new Date(quotation.createdAt).toISOString().split('T')[0]) : formatDate(new Date().toISOString().split('T')[0])}
+      ${logoBase64 ? `
+        <div class="logo-container">
+          <img src="${logoBase64}" alt="Palm Springs Resort" class="logo-img" />
         </div>
-      </div>
-      <div>
-        <span class="status-badge ${quotation.status === 'sent' ? 'status-sent' : 'status-draft'}">
-          ${(quotation.status || 'DRAFT').toUpperCase()}
-        </span>
-      </div>
+      ` : ''}
+      <div class="document-title">Event Proposal</div>
     </div>
 
-    <!-- Booking Details -->
-    <div class="booking-details">
-      <div><strong>TYPE OF FUNCTION:</strong> ${quotation.eventType ? capitalizeFirst(quotation.eventType) : 'N/A'}</div>
-      <div style="margin-top: 6px;"><strong>DATE OF FUNCTION:</strong> ${quotation.eventDate ? formatDate(quotation.eventDate) : 'To be confirmed'}</div>
-      ${quotation.eventDuration > 1 ? `<div style="margin-top: 6px;"><strong>DURATION:</strong> ${quotation.eventDuration} days</div>` : ''}
-      ${quotation.expectedGuests > 0 ? `<div style="margin-top: 6px;"><strong>EXPECTED GUESTS:</strong> ${quotation.expectedGuests}</div>` : ''}
-      ${quotation.clientName ? `<div style="margin-top: 6px;"><strong>CLIENT:</strong> ${quotation.clientName}</div>` : ''}
+    <!-- Greeting -->
+    <div class="greeting-section">
+      <p>Greetings of the day from Palm Springs Resort, Nashik!</p>
+      <p style="margin-top: 8px;">We sincerely thank you for considering "Palm Springs Resort" as the preferred venue for your upcoming event. Please find below our detailed proposal as discussed.</p>
     </div>
 
-    ${quotation.venueRentalItems && quotation.venueRentalItems.length > 0 ? `
-    <!-- Venue Rental Package Table -->
-    <div class="section-title">Venue Rental Package - GST Extra as Applicable</div>
+    ${venueRentalItems.length > 0 ? `
+    <!-- Venue Rental Package Section -->
+    <div class="section-title">Venue Rental Package (GST Extra as Applicable)</div>
     <div class="table-wrapper">
       <table>
         <thead>
           <tr>
             <th>Event Date</th>
             <th>Venue</th>
-            <th>Venue Space</th>
+            <th>Area (Sq. ft.)</th>
             <th>Session</th>
-            <th class="text-right">Session Rate</th>
+            <th>Rate</th>
           </tr>
         </thead>
         <tbody>
-          ${quotation.venueRentalItems.map((venue: any) => `
-          <tr>
-            <td>${venue.eventDate ? formatDate(venue.eventDate) : 'N/A'}</td>
-            <td>${venue.venue || 'N/A'}</td>
-            <td>${venue.venueSpace || 'N/A'}</td>
-            <td>${venue.session || 'N/A'}</td>
-            <td class="text-right">${formatCurrency(venue.sessionRate || 0)}</td>
-          </tr>
-          `).join('')}
+          ${sortedVenueDays.map((dayKey, dayIndex) => {
+            const dayVenues = venuesByDay[dayKey];
+            return dayVenues.map((venue: any, index: number) => `
+              <tr>
+                <td>${index === 0 ? `Day ${dayIndex + 1}` : ''}</td>
+                <td>${venue.venue || 'N/A'}</td>
+                <td>${getVenueArea(venue)}</td>
+                <td>${venue.session || 'N/A'}</td>
+                <td class="text-right">${formatCurrency(Number(venue.sessionRate) || 0)}</td>
+              </tr>
+            `).join('');
+          }).join('')}
           <tr class="total-row">
             <td colspan="4"><strong>Grand Total</strong></td>
             <td class="text-right"><strong>${formatCurrency(venueRentalTotal)}</strong></td>
@@ -543,331 +808,340 @@ export function generateQuotationHTML(quotation: any): string {
         </tbody>
       </table>
     </div>
-    <div style="margin-top: 10px; font-size: 12px; color: #6b7280; padding: 8px; background: #f9fafb; border-left: 3px solid #2d5016;">
-      The package includes venues for sessions, subject to availability and prior booking. Venue allocation and session timing depend on event type and guest count. Extra services will be charged additionally.
+    <div class="notes-section">
+      <p>The package includes ${venueRentalItems.length} venue${venueRentalItems.length > 1 ? 's' : ''} for ${venueRentalItems.length} session${venueRentalItems.length > 1 ? 's' : ''}, subject to availability and prior booking.</p>
+      <p>Venue allocation and session timing depend on event type and guest count.</p>
+      <p>Any additional venue requirements may incur additional charges.</p>
     </div>
     ` : ''}
 
-    ${quotation.roomPackages && quotation.roomPackages.length > 0 ? `
-    <!-- Room Accommodation Table -->
-    <div class="section-title">Special Room Quotation - GST Extra as Applicable</div>
+    ${roomPackages.length > 0 ? `
+    <!-- Room Plan Section (merged first column for non-food, or summary + detail for food) -->
+    ${hasFood ? `
+    <!-- Room Plan Summary (only for food quotations) -->
+    <div class="section-title">Room Plan Summary (GST Extra as Applicable)</div>
     <div class="table-wrapper">
       <table>
         <thead>
           <tr>
-            <th>Rooms Category</th>
-            <th class="text-right">Room Rate</th>
-            <th class="text-center">Requested Rooms</th>
-            <th class="text-center">Total Person Occupancy</th>
-            <th class="text-right">Total Amount</th>
+            <th>Event Date</th>
+            <th>Total Rooms</th>
+            <th>Occupancy</th>
+            <th>Subtotal</th>
           </tr>
         </thead>
         <tbody>
-          ${quotation.roomPackages.map((room: any) => {
-            const roomTotal = (room.rate || 0) * (room.numberOfRooms || 1);
+          ${sortedRoomDays.map((dayKey, dayIndex) => {
+            const dayTotal = roomTotalsByDay[dayKey];
             return `
-            <tr>
-              <td>${room.category || 'N/A'}</td>
-              <td class="text-right">${formatCurrency(room.rate || 0)}</td>
-              <td class="text-center">${room.numberOfRooms || 1}</td>
-              <td class="text-center">${room.totalOccupancy || 'N/A'}</td>
-              <td class="text-right">${formatCurrency(roomTotal)}</td>
-            </tr>
+              <tr>
+                <td>Day ${dayIndex + 1}</td>
+                <td>${dayTotal.totalRooms}</td>
+                <td>${dayTotal.totalOccupancy}</td>
+                <td class="text-right">${formatCurrency(dayTotal.subtotal)}</td>
+              </tr>
             `;
           }).join('')}
           <tr class="total-row">
             <td><strong>Total</strong></td>
-            <td></td>
-            <td class="text-center"><strong>${quotation.roomPackages.reduce((sum: number, r: any) => sum + (r.numberOfRooms || 1), 0)}</strong></td>
-            <td class="text-center"><strong>${quotation.roomPackages.reduce((sum: number, r: any) => sum + (r.totalOccupancy || 0), 0)}</strong></td>
+            <td><strong>${Object.values(roomTotalsByDay).reduce((sum, day) => sum + day.totalRooms, 0)}</strong></td>
+            <td><strong>${Object.values(roomTotalsByDay).reduce((sum, day) => sum + day.totalOccupancy, 0)}</strong></td>
             <td class="text-right"><strong>${formatCurrency(roomQuotationTotal)}</strong></td>
           </tr>
         </tbody>
       </table>
     </div>
-
-    <!-- Check-in/Check-out -->
-    <div class="checkin-section">
-      <div><strong>Check In :</strong> Afternoon ${quotation.checkInTime || '14:00'}hrs</div>
-      <div style="margin-top: 6px;"><strong>Check Out :</strong> Morning ${quotation.checkOutTime || '11:00'}hrs</div>
-    </div>
-
-    <div class="highlight-note">
-      <strong>Above Rooms charges will be without breakfast.</strong><br>
-      Extra Person / Bed will be as per actual.
+    <div class="stay-summary">
+      <p><strong>Stay Summary:</strong></p>
+      <p>Check-In: ${quotation.checkInTime || '14:00'} hrs | Check-Out: ${quotation.checkOutTime || '11:00'} hrs</p>
+      <p>Room charges exclude breakfast.</p>
+      <p>Extra person / bed - As per actuals</p>
     </div>
     ` : ''}
-
-    ${quotation.menuPackages && quotation.menuPackages.length > 0 ? `
-    <!-- Food & Beverage Packages -->
-    <div class="section-title">Food & Beverage Packages - GST Extra as Applicable</div>
-    ${quotation.menuPackages.map((pkg: any) => {
-      const packageItems = (pkg.selectedItems || []).filter((item: any) => item.isPackageItem !== false && (item.additionalPrice === 0 || !item.additionalPrice));
-      const additionalItems = (pkg.selectedItems || []).filter((item: any) => !item.isPackageItem || (item.additionalPrice && item.additionalPrice > 0));
-      const customItems = pkg.customItems || [];
-      
-      const additionalItemsTotal = additionalItems.reduce((sum: number, item: any) => {
-        const quantity = item.quantity !== undefined && item.quantity !== null ? item.quantity : 1;
-        return sum + ((item.additionalPrice || 0) * quantity);
-      }, 0);
-      const customItemsTotal = customItems.reduce((sum: number, item: any) => {
-        const quantity = item.quantity !== undefined && item.quantity !== null ? item.quantity : 1;
-        return sum + ((item.price || 0) * quantity);
-      }, 0);
-      const packageSubtotal = (pkg.price || 0) + additionalItemsTotal + customItemsTotal;
-      
-      return `
-      <div class="menu-package-card">
-        <div class="menu-package-header">
-          <div>
-            <div class="menu-package-name">${pkg.name || 'Package'}</div>
-            <div style="font-size: 11px; margin-top: 4px; opacity: 0.9;">
-              Base Price: ${formatCurrency(pkg.price || 0)} per person
-            </div>
-          </div>
-          <div class="menu-package-type">
-            ${pkg.type === 'veg' ? '🟩 Veg' : '🟥 Non-Veg'}
-          </div>
-        </div>
-        <div class="menu-package-body">
-          ${packageItems.length > 0 ? `
-          <div class="menu-items-section">
-            <div class="menu-items-title">Included Items:</div>
-            <div class="included-items">
-              ${packageItems.map((item: any) => {
-                const quantity = item.quantity !== undefined && item.quantity !== null ? item.quantity : 1;
-                return `
-                <div class="menu-item-row">
-                  <div>
-                    <strong style="color: #15803d;">${item.name}</strong>
-                    ${quantity > 0 ? `<span class="qty-badge">Qty: ${quantity}</span>` : ''}
-                  </div>
-                </div>
-                `;
-              }).join('')}
-            </div>
-          </div>
-          ` : ''}
-          
-          ${additionalItems.length > 0 ? `
-          <div class="menu-items-section">
-            <div class="menu-items-title">Additional Items:</div>
-            <div class="additional-items">
-              ${additionalItems.map((item: any) => {
-                const quantity = item.quantity !== undefined && item.quantity !== null ? item.quantity : 1;
-                const totalPrice = (item.additionalPrice || 0) * quantity;
-                return `
-                <div class="menu-item-row">
-                  <div>
-                    <strong style="color: #1d4ed8;">${item.name}</strong>
-                    ${quantity > 0 ? `<span class="qty-badge">Qty: ${quantity}</span>` : ''}
-                  </div>
-                  <strong style="color: #2563eb;">+${formatCurrency(totalPrice)}</strong>
-                </div>
-                `;
-              }).join('')}
-            </div>
-          </div>
-          ` : ''}
-          
-          ${customItems.length > 0 ? `
-          <div class="menu-items-section">
-            <div class="menu-items-title">Custom Items:</div>
-            <div class="custom-items">
-              ${customItems.map((item: any) => {
-                const quantity = item.quantity !== undefined && item.quantity !== null ? item.quantity : 1;
-                const totalPrice = (item.price || 0) * quantity;
-                return `
-                <div class="menu-item-row">
-                  <div>
-                    <strong style="color: #7c3aed;">${item.name}</strong>
-                    ${quantity > 0 ? `<span class="qty-badge">Qty: ${quantity}</span>` : ''}
-                  </div>
-                  <strong style="color: #9333ea;">${formatCurrency(totalPrice)}</strong>
-                </div>
-                `;
-              }).join('')}
-            </div>
-          </div>
-          ` : ''}
-          
-          <div style="margin-top: 12px; padding-top: 12px; border-top: 2px solid #e5e7eb;">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-              <strong style="font-size: 14px; color: #2d5016;">Package Total:</strong>
-              <strong style="font-size: 16px; color: #2d5016;">${formatCurrency(packageSubtotal)}</strong>
-            </div>
-          </div>
-        </div>
-      </div>
-      `;
-    }).join('')}
     ` : ''}
 
-    <!-- Financial Summary -->
-    <div class="summary-section">
-      <table class="summary-table">
+    ${hasFood ? `
+    <!-- Food Packages Section -->
+    <div class="section-title">Food Packages (GST Extra as Applicable)</div>
+    <div class="table-wrapper">
+      <table>
         <thead>
           <tr>
-            <th colspan="2">Summary</th>
+            <th>Package</th>
+            <th>Meal Type</th>
+            <th>Rate/Person</th>
+            <th>Guest Count</th>
+            <th>Total</th>
           </tr>
         </thead>
         <tbody>
-          ${venueRentalTotal > 0 ? `
+          ${menuPackageTotals.map((pkg: any) => `
+            <tr>
+              <td>${pkg.name || 'Package'}</td>
+              <td>${pkg.type === 'veg' ? 'Veg' : 'Non-Veg'}</td>
+              <td class="text-right">${formatCurrency(pkg.ratePerPerson)}</td>
+              <td>${pkg.guestCount}</td>
+              <td class="text-right">${formatCurrency(pkg.total)}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+    <div class="notes-section">
+      <p><strong>Note:</strong></p>
+      <p>All food packages include buffet setup, standard service ware, and mineral water.</p>
+      <p>Menu customization is available on request.</p>
+      <p>GST extra as applicable.</p>
+    </div>
+    ` : ''}
+
+    ${roomPackages.length > 0 ? `
+    <!-- Room Plan (GST Extra as Applicable) - merged first column -->
+    <div class="section-title">Room Plan (GST Extra as Applicable)</div>
+    <div class="table-wrapper">
+      <table class="room-detail-table">
+        <thead>
           <tr>
-            <td>Banquet</td>
-            <td class="text-right">${formatCurrency(venueRentalTotal)}</td>
+            <th>Event Date</th>
+            <th>Room Category</th>
+            <th>Rate</th>
+            <th>Rooms</th>
+            <th>Occupancy</th>
+            <th>Subtotal</th>
           </tr>
-          ` : ''}
-          ${menuTotal > 0 ? `
-          <tr>
-            <td>Food & Beverage</td>
-            <td class="text-right">${formatCurrency(menuTotal)}</td>
-          </tr>
-          ` : ''}
-          ${roomQuotationTotal > 0 ? `
-          <tr>
-            <td>Room</td>
-            <td class="text-right">${formatCurrency(roomQuotationTotal)}</td>
-          </tr>
-          ` : ''}
-          <tr style="background: #f0f8f0; font-weight: 600; border-top: 2px solid #2d5016;">
-            <td>Subtotal</td>
-            <td class="text-right">${formatCurrency(subtotal)}</td>
-          </tr>
-          ${quotation.includeGST && gstAmount > 0 ? `
-          <tr>
-            <td>GST</td>
-            <td class="text-right">${formatCurrency(Math.round(gstAmount))}</td>
-          </tr>
-          <tr style="background: #f0f8f0; font-weight: 600;">
-            <td>Grand Total</td>
-            <td class="text-right">${formatCurrency(grandTotal)}</td>
-          </tr>
-          ` : ''}
-          ${discountAmount > 0 ? `
-          <tr style="background: #eff6ff;">
-            <td>Discount (${quotation.discountType === 'percentage' ? `${quotation.discountValue || 0}%` : formatCurrency(quotation.discountValue || 0)})</td>
-            <td class="text-right" style="color: #2563eb;">-${formatCurrency(discountAmount)}</td>
-          </tr>
-          ` : ''}
+        </thead>
+        <tbody>
+          ${(() => {
+            let html = '';
+            let currentDay = '';
+            let dayCount = 0;
+            
+            roomDetailRows.forEach((row, index) => {
+              const isFirstInGroup = row.day !== currentDay;
+              
+              if (isFirstInGroup) {
+                currentDay = row.day;
+                // Count how many rows have this day
+                dayCount = roomDetailRows.filter(r => r.day === currentDay).length;
+              }
+              
+              if (isFirstInGroup) {
+                // First row of group - include day cell with rowspan
+                html += `
+                  <tr>
+                    <td rowspan="${dayCount}">${row.day}</td>
+                    <td>${row.category}</td>
+                    <td class="text-right">${formatCurrency(row.rate)}</td>
+                    <td>${row.rooms}</td>
+                    <td>${row.occupancy}</td>
+                    <td class="text-right">${formatCurrency(row.subtotal)}</td>
+                  </tr>
+                `;
+              } else {
+                // Subsequent rows in group - no day cell (it's merged via rowspan)
+                html += `
+                  <tr>
+                    <td>${row.category}</td>
+                    <td class="text-right">${formatCurrency(row.rate)}</td>
+                    <td>${row.rooms}</td>
+                    <td>${row.occupancy}</td>
+                    <td class="text-right">${formatCurrency(row.subtotal)}</td>
+                  </tr>
+                `;
+              }
+            });
+            
+            return html;
+          })()}
           <tr class="total-row">
             <td><strong>Total</strong></td>
-            <td class="text-right"><strong>${formatCurrency(finalTotal)}</strong></td>
+            <td></td>
+            <td></td>
+            <td><strong>${Object.values(roomTotalsByDay).reduce((sum, day) => sum + day.totalRooms, 0)}</strong></td>
+            <td><strong>${Object.values(roomTotalsByDay).reduce((sum, day) => sum + day.totalOccupancy, 0)}</strong></td>
+            <td class="text-right"><strong>${formatCurrency(roomQuotationTotal)}</strong></td>
           </tr>
         </tbody>
       </table>
     </div>
+    ${!hasFood ? `
+    <div class="stay-summary">
+      <p><strong>Stay Summary:</strong></p>
+      <p>Check-In: ${quotation.checkInTime || '14:00'} hrs | Check-Out: ${quotation.checkOutTime || '11:00'} hrs</p>
+      <p>Room charges exclude breakfast.</p>
+      <p>Extra person / bed - As per actuals</p>
+    </div>
+    ` : ''}
+    ` : ''}
 
-    <div style="margin-top: 10px; font-size: 12px; color: #6b7280; padding: 8px; background: #f9fafb; border-left: 3px solid #2d5016;">
-      <strong>Valid Until:</strong> ${quotation.validUntil ? formatDate(new Date(quotation.validUntil).toISOString().split('T')[0]) : '30 days from creation'}
+    ${hasFood ? `
+    ${Object.keys(foodMenuDetails).length > 0 ? `
+    <!-- Food Menu Details Section -->
+    <div class="section-title">Food Menu Details</div>
+    <div class="table-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th>Item Type</th>
+            <th>Day 1 Lunch</th>
+            <th>Day 1 Dinner</th>
+            <th>Day 2 Lunch</th>
+            <th>Day 2 Dinner</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${Object.keys(foodMenuDetails).map(itemType => {
+            const day1Data = foodMenuDetails[itemType]['Day 1'] || {};
+            const day2Data = foodMenuDetails[itemType]['Day 2'] || {};
+            return `
+              <tr>
+                <td>${itemType}</td>
+                <td>${day1Data['Lunch'] || '-'}</td>
+                <td>${day1Data['Dinner'] || '-'}</td>
+                <td>${day2Data['Lunch'] || '-'}</td>
+                <td>${day2Data['Dinner'] || '-'}</td>
+              </tr>
+            `;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+    ` : ''}
+
+    ${Object.keys(hiteaMenuItems).length > 0 ? `
+    <!-- Hi-Tea & Late-Night Phera Menu Section -->
+    <div class="section-title">Hi-Tea & Late-Night Phera Menu</div>
+    <div class="table-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th>Item Type</th>
+            <th>Day 1</th>
+            <th>Day 2</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${Object.keys(hiteaMenuItems).map(itemType => `
+            <tr>
+              <td>${itemType}</td>
+              <td>${hiteaMenuItems[itemType]['Day 1'] || '-'}</td>
+              <td>${hiteaMenuItems[itemType]['Day 2'] || '-'}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+    ` : ''}
+
+    ${additionalItems.length > 0 ? `
+    <!-- Additional Items Per Person Section -->
+    <div class="section-title">Additional Items Per Person</div>
+    <div class="table-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th>Add-on Item</th>
+            <th>Rate (Rs.)</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${additionalItems.map((item: any) => `
+            <tr>
+              <td>${item.name}</td>
+              <td class="text-right">${formatCurrency(item.rate)}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+    ` : ''}
+    ` : ''}
+
+    <!-- Summary Amount Section -->
+    <div class="summary-amount-section">
+      <div class="section-title">Summary Amount</div>
+      <div class="table-wrapper">
+        <table class="summary-table">
+          <thead>
+            <tr>
+              <th>Particular</th>
+              <th>Amount (Rs.)</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${venueBaseAfterDiscount > 0 ? `
+            <tr>
+              <td>Banquet</td>
+              <td class="text-right">${formatCurrency(venueBaseAfterDiscount)}</td>
+            </tr>
+            ` : ''}
+            ${roomBaseAfterDiscount > 0 ? `
+            <tr>
+              <td>Rooms (All Nights)</td>
+              <td class="text-right">${formatCurrency(roomBaseAfterDiscount)}</td>
+            </tr>
+            ` : ''}
+            ${hasFood && menuBaseAfterDiscount > 0 ? `
+            <tr>
+              <td>Food Packages</td>
+              <td class="text-right">${formatCurrency(menuBaseAfterDiscount)}</td>
+            </tr>
+            ` : ''}
+            <tr style="background: ${FADED_GOLD}; font-weight: 600; border-top: 2px solid #d1b887;">
+              <td><strong>Subtotal</strong></td>
+              <td class="text-right"><strong>${formatCurrency(subtotalAfterDiscount)}</strong></td>
+            </tr>
+            ${discountAmount > 0 ? `
+            <tr style="background: #E3F2FD;">
+              <td>Discount (${discountType === 'percentage' ? `${discountValue}%` : formatCurrency(discountValue)})</td>
+              <td class="text-right" style="color: #1976D2;">-${formatCurrency(discountAmount)}</td>
+            </tr>
+            ` : ''}
+            ${includeGST && totalGST > 0 ? `
+            <tr>
+              <td>GST</td>
+              <td class="text-right">${formatCurrency(Math.round(totalGST))}</td>
+            </tr>
+            ` : ''}
+            <tr class="total-row">
+              <td><strong>Total</strong></td>
+              <td class="text-right"><strong>${formatCurrency(finalTotal)}</strong></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
 
-    <!-- Terms & Conditions -->
+    <!-- Yours truly -->
+    <div class="contact-section">
+      <div class="contact-details">
+        <p>Yours truly,</p>
+        <p style="margin-top: 8px;">Vaibhav Awate</p>
+        <p>Manager - Banquets Sales | Palm Springs Resort, Nashik</p>
+        <p>Phone: +91 99231 50400 | Email: bqtsales@palmspringsindia.com</p>
+      </div>
+    </div>
+
+    <!-- Page Break: Terms & Conditions -->
+    <div class="page-break"></div>
+
+    <!-- Terms & Conditions Section -->
     <div class="terms-section">
       <div class="terms-title">Terms & Conditions</div>
       
-      <div class="taxes-note">
-        Taxes extra As per Govt Norms
-      </div>
-
       <ul class="terms-list">
-        ${quotation.paymentTerms ? `
-        <li>
-          <strong>Payment Terms:</strong> ${quotation.paymentTerms}
-        </li>
-        ` : ''}
-        ${quotation.musicPolicy ? `
-        <li>
-          <strong>Music Regulations:</strong> ${quotation.musicPolicy}
-        </li>
-        ` : ''}
-        ${quotation.permissionsRequired ? `
-        <li>
-          <strong>Permissions/Licenses:</strong> ${quotation.permissionsRequired}
-        </li>
-        ` : ''}
-        ${quotation.gstPolicy ? `
-        <li>
-          <strong>GSTIN Requirement:</strong> ${quotation.gstPolicy}
-        </li>
-        ` : ''}
-        ${quotation.venuePolicy ? `
-        <li>
-          <strong>Banquet Hall Choices:</strong> ${quotation.venuePolicy}
-        </li>
-        ` : ''}
-        ${quotation.extraSpacePolicy ? `
-        <li>
-          <strong>Additional Space Charges:</strong> ${quotation.extraSpacePolicy}
-        </li>
-        ` : ''}
-        ${quotation.electricityPolicy ? `
-        <li>
-          <strong>Electricity Supply:</strong> ${quotation.electricityPolicy}
-        </li>
-        ` : ''}
-        ${quotation.decorPolicy ? `
-        <li>
-          <strong>Décor Services:</strong> ${quotation.decorPolicy}
-        </li>
-        ` : ''}
-        ${quotation.chairsTablesPolicy ? `
-        <li>
-          <strong>Chair/Table Provision:</strong> ${quotation.chairsTablesPolicy}
-        </li>
-        ` : ''}
-        ${quotation.prohibitedItems ? `
-        <li>
-          <strong>Prohibited Items:</strong> ${quotation.prohibitedItems}
-        </li>
-        ` : ''}
-        ${quotation.damageLiability ? `
-        <li>
-          <strong>Damage Policy:</strong> ${quotation.damageLiability}
-        </li>
-        ` : ''}
-        ${quotation.externalVendorPolicy ? `
-        <li>
-          <strong>External Vendors/Branding:</strong> ${quotation.externalVendorPolicy}
-        </li>
-        ` : ''}
-        ${quotation.termsAndConditions && quotation.termsAndConditions.length > 0 ? quotation.termsAndConditions.map((term: string, index: number) => `
-        <li>
-          <strong>Term ${index + 1}:</strong> ${term}
-        </li>
-        `).join('') : ''}
+        <li><strong>Taxes:</strong> Taxes applicable as per prevailing Government norms.</li>
+        ${quotation.paymentTerms ? `<li><strong>Payment Terms:</strong> ${quotation.paymentTerms}</li>` : `<li><strong>Payment Terms:</strong> 100% advance - 25% at the time of booking confirmation and the remaining 75% fifteen days prior to the function date.</li>`}
+        ${quotation.venuePolicy ? `<li><strong>Banquet Halls:</strong> ${quotation.venuePolicy}</li>` : `<li><strong>Banquet Halls:</strong> Allocation of banquet halls is subject to availability. Management reserves the right to change the hall if necessary.</li>`}
+        ${quotation.musicPolicy || quotation.permissionsRequired ? `<li><strong>Music & Licenses:</strong> ${quotation.musicPolicy || ''} ${quotation.permissionsRequired || ''}</li>` : `<li><strong>Music & Licenses:</strong> Music is permitted until 10:00 PM, subject to compliance with Government sound regulations. Guests are responsible for obtaining and submitting all mandatory permissions/licenses (such as PPL / Music / Liquor Licenses) prior to the event.</li>`}
+        ${quotation.gstPolicy ? `<li><strong>GSTIN:</strong> ${quotation.gstPolicy}</li>` : `<li><strong>GSTIN:</strong> GSTIN must be provided prior to the event.</li>`}
+        ${quotation.extraSpacePolicy ? `<li><strong>Additional Spaces:</strong> ${quotation.extraSpacePolicy}</li>` : `<li><strong>Additional Spaces:</strong> Any extra space required, such as storage or an additional venue, will be chargeable separately.</li>`}
+        ${quotation.electricityPolicy ? `<li><strong>Electricity Supply:</strong> ${quotation.electricityPolicy}</li>` : `<li><strong>Electricity Supply:</strong> The resort provides electricity for guest rooms, basic banquet lighting, banquet air-conditioning, and basic lawn lighting. If additional power supply is required, it must be arranged by the guest through our authorized vendor at an extra cost.</li>`}
+        ${quotation.decorPolicy ? `<li><strong>Decor & Furniture:</strong> ${quotation.decorPolicy}</li>` : `<li><strong>Decor & Furniture:</strong> Decor is not included in the package. Guests may contact our empaneled vendors for decor requirements. Basic banquet chairs with covers will be provided by the resort.</li>`}
+        ${quotation.prohibitedItems ? `<li><strong>Prohibited Items:</strong> ${quotation.prohibitedItems}</li>` : `<li><strong>Prohibited Items:</strong> Firecrackers and paper blasts are strictly prohibited within the resort premises.</li>`}
+        ${quotation.externalVendorPolicy ? `<li><strong>External Vendors:</strong> ${quotation.externalVendorPolicy}</li>` : `<li><strong>External Vendors:</strong> External event or hospitality vendors from the guest's side are not permitted to display branding of any kind. Any damages caused by such vendors will be the sole responsibility of the main guest.</li>`}
+        ${quotation.damageLiability ? `<li><strong>Damages & Liability:</strong> ${quotation.damageLiability}</li>` : `<li><strong>Damages & Liability:</strong> Any damage caused to resort property, including surfaces, decor, rooms, or linen, due to non-compliance with resort guidelines, will be chargeable as deemed appropriate by management.</li>`}
       </ul>
-
-      <div style="margin-top: 15px; padding: 10px; background: #f0f8f0; border-left: 4px solid #2d5016; font-size: 12px;">
-        <strong>Note:-</strong><br>
-        Term & Conditions Apply*<br>
-        <strong style="color: #2d5016;">GST Extra as Applicable</strong>
-      </div>
-    </div>
-
-    <!-- Contact Section -->
-    <div class="contact-section">
-      <div class="contact-closing">
-        Looking forward to receive your confirmation, for any further details please feel free to call on us. Assuring you the best services at all times.
-      </div>
-
-      <div class="contact-details">
-        <div class="contact-name">Yours Truly,</div>
-        <div class="contact-name" style="margin-top: 5px;">Manager Banquets Sales</div>
-        <div class="contact-role">Palm Springs Resort, Nashik</div>
-        
-        <div class="contact-info">
-          <div><strong>Cell:</strong> +91 9923150400</div>
-          <div style="margin-top: 4px;"><strong>Email:</strong> bqtsales@palmspringsindia.com</div>
-          <div style="margin-top: 4px;">
-            <strong>Address:</strong> Opposite Vasantrao Kanetkar Udyan | Gangapur Sawarrgaon Road | Govardhan | Nashik 422 222
-          </div>
-          <div style="margin-top: 4px;">
-            <strong>Website:</strong> www.palmspringsindia.com | 
-            <strong>Location:</strong> <a href="https://www.google.com/travel/hotels/s/BXZxn" style="color: #2563eb; text-decoration: none;">View on Google Maps</a>
-          </div>
-        </div>
-      </div>
     </div>
   </div>
 </body>
