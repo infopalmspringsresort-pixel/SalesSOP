@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useForm, useFieldArray, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -28,6 +28,26 @@ import { sendQuotationEmail } from "@/lib/email-service";
 import { type WorkingQuotationPDFData } from "@/lib/working-pdf-generator";
 
 const formSchema = insertQuotationSchema;
+
+const METADATA_FIELD_NAMES: Array<keyof z.infer<typeof formSchema>> = [
+  'enquiryId',
+  'eventDate',
+  'createdBy',
+  'validUntil',
+];
+
+const parseDateValue = (value: unknown): Date | undefined => {
+  if (value instanceof Date && !isNaN(value.getTime())) {
+    return value;
+  }
+  if (typeof value === 'string' && value) {
+    const parsed = new Date(value);
+    if (!isNaN(parsed.getTime())) {
+      return parsed;
+    }
+  }
+  return undefined;
+};
 
 
 interface QuotationFormProps {
@@ -97,23 +117,30 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
   const eventDate = enquiry?.eventDate 
     ? new Date(enquiry.eventDate).toISOString().split('T')[0] 
     : new Date().toISOString().split('T')[0]; // Fallback to today if missing
+
+  const enquiryClientName = enquiry?.clientName || "";
+  const enquiryEmail = enquiry?.email || "";
+  const enquiryPhone = enquiry?.contactNumber || "";
+  const enquiryEventType = enquiry?.eventType || "wedding";
   
   // Ensure createdBy is set from user if available
   const createdBy = user ? (String((user as any)?.id || (user as any)?._id || '')) : '';
   
   // Ensure validUntil is always a valid ISO string (30 days from now)
-  const defaultValidUntilIso = useMemo(
-    () => new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-    []
-  );
+  const getDefaultValidUntil = useCallback(() => {
+    const date = new Date();
+    date.setDate(date.getDate() + 30);
+    date.setHours(0, 0, 0, 0);
+    return date;
+  }, []);
 
-  const initialDefaults = {
+  const initialDefaults = useMemo(() => ({
     enquiryId: enquiryId,
     quotationNumber: "",
-    clientName: enquiry?.clientName || "",
-    clientEmail: enquiry?.email || "",
-    clientPhone: enquiry?.contactNumber || "",
-    eventType: enquiry?.eventType || "wedding",
+    clientName: enquiryClientName,
+    clientEmail: enquiryEmail,
+    clientPhone: enquiryPhone,
+    eventType: enquiryEventType,
     eventDate: eventDate,
     venueRentalItems: [] as any[],
     venueRentalTotal: 0,
@@ -130,18 +157,38 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
     includeGST: false,
     createdBy: createdBy,
     status: 'draft' as const,
-    validUntil: defaultValidUntilIso,
-  };
+    validUntil: getDefaultValidUntil(),
+  }), [enquiryId, enquiryClientName, enquiryEmail, enquiryPhone, enquiryEventType, eventDate, createdBy, getDefaultValidUntil]);
+
+  const isMetadataReady = Boolean(enquiry && user);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
-    defaultValues: initialDefaults,
-    shouldUnregister: true,
+    defaultValues: isMetadataReady ? initialDefaults : undefined,
+    shouldUnregister: false,
   });
 
+  const metadataInitializedRef = useRef(false);
+
+  useEffect(() => {
+    metadataInitializedRef.current = false;
+  }, [enquiry?.id, (user as any)?.id, (user as any)?._id, editingQuotation?.id]);
+
   const ensureMetadataFields = useCallback(() => {
+    if (!isMetadataReady) {
+      return;
+    }
+
+    const isInitializing = !metadataInitializedRef.current;
+    let didUpdate = false;
+
     if (enquiry?.id) {
-      form.setValue('enquiryId', String(enquiry.id), { shouldValidate: false, shouldDirty: false });
+      const nextEnquiryId = String(enquiry.id);
+      const currentEnquiryId = form.getValues('enquiryId');
+      if (currentEnquiryId !== nextEnquiryId) {
+        form.setValue('enquiryId', nextEnquiryId, { shouldValidate: false, shouldDirty: false });
+        didUpdate = true;
+      }
     }
 
     const enquiryEventDate = enquiry?.eventDate
@@ -150,55 +197,97 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
 
     const currentEventDate = form.getValues('eventDate');
     if (enquiryEventDate) {
-      form.setValue('eventDate', enquiryEventDate, { shouldValidate: false, shouldDirty: false });
+      if (currentEventDate !== enquiryEventDate) {
+        form.setValue('eventDate', enquiryEventDate, { shouldValidate: false, shouldDirty: false });
+        didUpdate = true;
+      }
     } else if (!currentEventDate) {
       form.setValue('eventDate', new Date().toISOString().split('T')[0], { shouldValidate: false, shouldDirty: false });
+      didUpdate = true;
     }
 
     const userId = user ? String((user as any)?.id || (user as any)?._id || '') : '';
     if (userId) {
-      form.setValue('createdBy', userId, { shouldValidate: false, shouldDirty: false });
+      const currentCreatedBy = form.getValues('createdBy');
+      if (currentCreatedBy !== userId) {
+        form.setValue('createdBy', userId, { shouldValidate: false, shouldDirty: false });
+        didUpdate = true;
+      }
     }
 
-    const currentValidUntil = form.getValues('validUntil');
-    let resolvedValidUntil: string;
+    const currentValidUntilValue = form.getValues('validUntil');
+    const currentValidUntilDate = parseDateValue(currentValidUntilValue);
 
-    if (currentValidUntil instanceof Date) {
-      resolvedValidUntil = currentValidUntil.toISOString();
-    } else if (typeof currentValidUntil === 'string' && currentValidUntil.trim() !== '') {
-      resolvedValidUntil = currentValidUntil;
-    } else if (editingQuotation?.validUntil) {
-      const editingValue = editingQuotation.validUntil instanceof Date
-        ? editingQuotation.validUntil
-        : new Date(editingQuotation.validUntil);
-      resolvedValidUntil = !isNaN(editingValue.getTime())
-        ? editingValue.toISOString()
-        : defaultValidUntilIso;
-    } else {
-      resolvedValidUntil = defaultValidUntilIso;
+    let targetValidUntil = currentValidUntilDate;
+
+    if (!targetValidUntil) {
+      const editingValidUntil = parseDateValue(editingQuotation?.validUntil);
+      if (editingValidUntil) {
+        targetValidUntil = editingValidUntil;
+      }
     }
 
-    form.setValue('validUntil', resolvedValidUntil, { shouldValidate: false, shouldDirty: false });
-  }, [enquiry, user, form, editingQuotation, defaultValidUntilIso]);
+    if (!targetValidUntil) {
+      targetValidUntil = getDefaultValidUntil();
+    }
+
+    if (
+      !currentValidUntilDate ||
+      (isInitializing && currentValidUntilDate.getTime() !== targetValidUntil.getTime())
+    ) {
+      form.setValue('validUntil', targetValidUntil, { shouldValidate: false, shouldDirty: false });
+      didUpdate = true;
+    }
+
+    metadataInitializedRef.current = true;
+
+    if (didUpdate) {
+      form.clearErrors(METADATA_FIELD_NAMES);
+      form.trigger(METADATA_FIELD_NAMES);
+    }
+  }, [enquiry, user, form, editingQuotation, getDefaultValidUntil, isMetadataReady]);
+
+  useEffect(() => {
+    if (!isMetadataReady || editingQuotation) {
+      return;
+    }
+
+    if (metadataInitializedRef.current) {
+      return;
+    }
+
+    form.reset(initialDefaults);
+    ensureMetadataFields();
+  }, [isMetadataReady, initialDefaults, form, ensureMetadataFields, editingQuotation]);
 
   // Update form when user loads (for live site where user might load asynchronously)
   useEffect(() => {
+    if (!isMetadataReady) {
+      return;
+    }
+
     form.register('enquiryId');
     form.register('eventDate');
     form.register('createdBy');
     form.register('validUntil');
     ensureMetadataFields();
-  }, [form, ensureMetadataFields]);
+  }, [form, ensureMetadataFields, isMetadataReady]);
 
   // Update form when user loads (for live site where user might load asynchronously)
   useEffect(() => {
+    if (!isMetadataReady) {
+      return;
+    }
     ensureMetadataFields();
-  }, [user, ensureMetadataFields]);
+  }, [user, ensureMetadataFields, isMetadataReady]);
 
   // Ensure enquiryId and eventDate are always set
   useEffect(() => {
+    if (!isMetadataReady) {
+      return;
+    }
     ensureMetadataFields();
-  }, [enquiry, ensureMetadataFields]);
+  }, [enquiry, ensureMetadataFields, isMetadataReady]);
 
   const { fields: venueFields, append: appendVenue, remove: removeVenue } = useFieldArray({
     control: form.control,
@@ -389,37 +478,65 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
 
   // Reset form when editingQuotation changes
   useEffect(() => {
+    if (!isMetadataReady) {
+      return;
+    }
+
     if (editingQuotation) {
       // Convert venue rental item dates to DD MM YYYY format
       const convertedQuotation = {
         ...editingQuotation,
-        venueRentalItems: editingQuotation.venueRentalItems?.map(item => ({
-          ...item,
-          eventDate: convertToDDMMYYYY(item.eventDate),
-          // Ensure all required fields are strings/numbers, not objects
-          venue: typeof item.venue === 'string' ? item.venue : (item.venue?.name || item.venue || ''),
-          venueSpace: typeof item.venueSpace === 'string' ? item.venueSpace : (item.venueSpace || ''),
-          session: typeof item.session === 'string' ? item.session : (item.session || ''),
-          sessionRate: typeof item.sessionRate === 'number' ? item.sessionRate : (parseFloat(item.sessionRate) || 0),
-        })) || [],
-        roomPackages: editingQuotation.roomPackages?.map(room => ({
-          ...room,
-          // Ensure all required fields are properly typed
-          category: typeof room.category === 'string' ? room.category : (room.category?.name || room.category || ''),
-          rate: typeof room.rate === 'number' ? room.rate : (parseFloat(room.rate) || 0),
-          numberOfRooms: typeof room.numberOfRooms === 'number' ? room.numberOfRooms : (parseInt(room.numberOfRooms) || null),
-          totalOccupancy: typeof room.totalOccupancy === 'number' ? room.totalOccupancy : (parseInt(room.totalOccupancy) || null),
-        })) || [],
+        venueRentalItems: editingQuotation.venueRentalItems?.map(item => {
+          const rawItem = item as any;
+          const resolvedSessionRate = typeof rawItem.sessionRate === 'number'
+            ? rawItem.sessionRate
+            : Number.parseFloat(rawItem.sessionRate ?? '0') || 0;
+
+          return {
+            ...item,
+            eventDate: convertToDDMMYYYY(rawItem.eventDate),
+            venue: typeof rawItem.venue === 'string'
+              ? rawItem.venue
+              : (rawItem.venue?.name ?? rawItem.venue ?? ''),
+            venueSpace: typeof rawItem.venueSpace === 'string'
+              ? rawItem.venueSpace
+              : (rawItem.venueSpace ?? ''),
+            session: typeof rawItem.session === 'string'
+              ? rawItem.session
+              : (rawItem.session ?? ''),
+            sessionRate: resolvedSessionRate,
+          };
+        }) || [],
+        roomPackages: editingQuotation.roomPackages?.map(room => {
+          const rawRoom = room as any;
+          const resolvedRate = typeof rawRoom.rate === 'number'
+            ? rawRoom.rate
+            : Number.parseFloat(rawRoom.rate ?? '0') || 0;
+          const resolvedNumberOfRooms = typeof rawRoom.numberOfRooms === 'number'
+            ? rawRoom.numberOfRooms
+            : Number.parseInt(rawRoom.numberOfRooms ?? '', 10) || null;
+          const resolvedTotalOccupancy = typeof rawRoom.totalOccupancy === 'number'
+            ? rawRoom.totalOccupancy
+            : Number.parseInt(rawRoom.totalOccupancy ?? '', 10) || null;
+
+          return {
+            ...room,
+            category: typeof rawRoom.category === 'string'
+              ? rawRoom.category
+              : (rawRoom.category?.name ?? rawRoom.category ?? ''),
+            rate: resolvedRate,
+            numberOfRooms: resolvedNumberOfRooms,
+            totalOccupancy: resolvedTotalOccupancy,
+          };
+        }) || [],
         // Ensure parentQuotationId is undefined, not null
         parentQuotationId: editingQuotation.parentQuotationId || undefined,
-        validUntil: editingQuotation.validUntil
-          ? (editingQuotation.validUntil instanceof Date
-              ? editingQuotation.validUntil.toISOString()
-              : new Date(editingQuotation.validUntil).toISOString())
-          : defaultValidUntilIso,
+        validUntil: parseDateValue(editingQuotation.validUntil) || getDefaultValidUntil(),
       };
       
+      metadataInitializedRef.current = false;
       form.reset(convertedQuotation);
+      ensureMetadataFields();
     } else {
       // Start with empty form - details will show only when items are selected
       form.reset({
@@ -439,10 +556,11 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
         grandTotal: 0,
         createdBy: "",
         status: 'draft',
-        validUntil: defaultValidUntilIso,
+        validUntil: getDefaultValidUntil(),
       });
+      ensureMetadataFields();
     }
-  }, [editingQuotation, enquiry, form, venues, defaultValidUntilIso]);
+  }, [editingQuotation, enquiry, form, venues, ensureMetadataFields, isMetadataReady, getDefaultValidUntil]);
 
   // Reset stale state when dialog closes; reinitialize on open for new flow
   useEffect(() => {
@@ -809,8 +927,7 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
               const allItems = await response.json();
               const filteredItems = allItems.filter((item: any) => {
                 const itemPackageId = typeof item.packageId === 'string' ? item.packageId : item.packageId?.toString();
-                const selectedPackageId = typeof packageId === 'string' ? packageId : packageId.toString();
-                return itemPackageId === selectedPackageId;
+                return itemPackageId === packageId;
               });
               
               console.log(`🔍 Found ${filteredItems.length} items for package ${packageId}`);
@@ -941,7 +1058,7 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
         ? new Date(enquiry.eventDate).toISOString().split('T')[0] 
         : new Date().toISOString().split('T')[0]);
       const formCreatedBy = updatedData.createdBy || String((user as any)?.id || (user as any)?._id || '');
-      const formValidUntil = updatedData.validUntil || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+      const formValidUntil = parseDateValue(updatedData.validUntil) || getDefaultValidUntil();
 
       // Validate required fields
       if (!formEnquiryId) {
@@ -978,7 +1095,7 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
         // quotationNumber is optional - will be generated by server
         eventDate: formEventDate,
         createdBy: formCreatedBy,
-        validUntil: formValidUntil instanceof Date ? formValidUntil.toISOString() : (typeof formValidUntil === 'string' ? formValidUntil : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()),
+        validUntil: formValidUntil,
         menuPackages: menuPackagesData,
         venueRentalTotal: updatedData.venueRentalTotal || venueTotal || 0,
         roomQuotationTotal: updatedData.roomQuotationTotal || roomQuotationTotal || 0,
