@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { useForm, useFieldArray, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -101,8 +101,11 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
   // Ensure createdBy is set from user if available
   const createdBy = user ? (String((user as any)?.id || (user as any)?._id || '')) : '';
   
-  // Ensure validUntil is always a Date
-  const validUntil = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days from now
+  // Ensure validUntil is always a valid ISO string (30 days from now)
+  const defaultValidUntilIso = useMemo(
+    () => new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+    []
+  );
 
   const initialDefaults = {
     enquiryId: enquiryId,
@@ -127,7 +130,7 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
     includeGST: false,
     createdBy: createdBy,
     status: 'draft' as const,
-    validUntil: validUntil,
+    validUntil: defaultValidUntilIso,
   };
 
   const form = useForm<z.infer<typeof formSchema>>({
@@ -136,29 +139,66 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
     shouldUnregister: true,
   });
 
+  const ensureMetadataFields = useCallback(() => {
+    if (enquiry?.id) {
+      form.setValue('enquiryId', String(enquiry.id), { shouldValidate: false, shouldDirty: false });
+    }
+
+    const enquiryEventDate = enquiry?.eventDate
+      ? new Date(enquiry.eventDate).toISOString().split('T')[0]
+      : '';
+
+    const currentEventDate = form.getValues('eventDate');
+    if (enquiryEventDate) {
+      form.setValue('eventDate', enquiryEventDate, { shouldValidate: false, shouldDirty: false });
+    } else if (!currentEventDate) {
+      form.setValue('eventDate', new Date().toISOString().split('T')[0], { shouldValidate: false, shouldDirty: false });
+    }
+
+    const userId = user ? String((user as any)?.id || (user as any)?._id || '') : '';
+    if (userId) {
+      form.setValue('createdBy', userId, { shouldValidate: false, shouldDirty: false });
+    }
+
+    const currentValidUntil = form.getValues('validUntil');
+    let resolvedValidUntil: string;
+
+    if (currentValidUntil instanceof Date) {
+      resolvedValidUntil = currentValidUntil.toISOString();
+    } else if (typeof currentValidUntil === 'string' && currentValidUntil.trim() !== '') {
+      resolvedValidUntil = currentValidUntil;
+    } else if (editingQuotation?.validUntil) {
+      const editingValue = editingQuotation.validUntil instanceof Date
+        ? editingQuotation.validUntil
+        : new Date(editingQuotation.validUntil);
+      resolvedValidUntil = !isNaN(editingValue.getTime())
+        ? editingValue.toISOString()
+        : defaultValidUntilIso;
+    } else {
+      resolvedValidUntil = defaultValidUntilIso;
+    }
+
+    form.setValue('validUntil', resolvedValidUntil, { shouldValidate: false, shouldDirty: false });
+  }, [enquiry, user, form, editingQuotation, defaultValidUntilIso]);
+
   // Update form when user loads (for live site where user might load asynchronously)
   useEffect(() => {
-    if (user) {
-      const userId = String((user as any)?.id || (user as any)?._id || '');
-      if (userId) {
-        form.setValue('createdBy', userId, { shouldValidate: false });
-      }
-    }
-  }, [user, form]);
+    form.register('enquiryId');
+    form.register('eventDate');
+    form.register('createdBy');
+    form.register('validUntil');
+    ensureMetadataFields();
+  }, [form, ensureMetadataFields]);
+
+  // Update form when user loads (for live site where user might load asynchronously)
+  useEffect(() => {
+    ensureMetadataFields();
+  }, [user, ensureMetadataFields]);
 
   // Ensure enquiryId and eventDate are always set
   useEffect(() => {
-    if (enquiry?.id) {
-      form.setValue('enquiryId', String(enquiry.id), { shouldValidate: false });
-    }
-    if (enquiry?.eventDate) {
-      const dateStr = new Date(enquiry.eventDate).toISOString().split('T')[0];
-      form.setValue('eventDate', dateStr, { shouldValidate: false });
-    }
-    // Ensure validUntil is always set
-    const validUntilDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-    form.setValue('validUntil', validUntilDate, { shouldValidate: false });
-  }, [enquiry, form]);
+    ensureMetadataFields();
+  }, [enquiry, ensureMetadataFields]);
 
   const { fields: venueFields, append: appendVenue, remove: removeVenue } = useFieldArray({
     control: form.control,
@@ -372,6 +412,11 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
         })) || [],
         // Ensure parentQuotationId is undefined, not null
         parentQuotationId: editingQuotation.parentQuotationId || undefined,
+        validUntil: editingQuotation.validUntil
+          ? (editingQuotation.validUntil instanceof Date
+              ? editingQuotation.validUntil.toISOString()
+              : new Date(editingQuotation.validUntil).toISOString())
+          : defaultValidUntilIso,
       };
       
       form.reset(convertedQuotation);
@@ -394,10 +439,10 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
         grandTotal: 0,
         createdBy: "",
         status: 'draft',
-        validUntil: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days from now
+        validUntil: defaultValidUntilIso,
       });
     }
-  }, [editingQuotation, enquiry, form, venues]);
+  }, [editingQuotation, enquiry, form, venues, defaultValidUntilIso]);
 
   // Reset stale state when dialog closes; reinitialize on open for new flow
   useEffect(() => {
