@@ -243,7 +243,6 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
 
     if (didUpdate) {
       form.clearErrors(METADATA_FIELD_NAMES);
-      form.trigger(METADATA_FIELD_NAMES);
     }
   }, [enquiry, user, form, editingQuotation, getDefaultValidUntil, isMetadataReady]);
 
