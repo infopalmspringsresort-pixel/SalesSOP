@@ -1,45 +1,58 @@
-import { useState, useEffect } from "react";
+import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Plus, Trash2, Clock, MapPin, AlertTriangle, Calendar } from "lucide-react";
+import { Plus, Trash2, Clock, AlertTriangle, Calendar } from "lucide-react";
 import { TimePicker } from "@/components/ui/time-picker";
 import { z } from "zod";
+import { useVenues } from "@/hooks/useVenues";
 
-// Session name options (standardized with booking form)
-const SESSION_NAME_OPTIONS = [
+const ALL_DAY_LABEL = "All Day";
+
+const DAY_SESSION_OPTIONS = [
   "Breakfast",
-  "Lunch", 
+  "Lunch",
   "Hi-Tea",
-  "Dinner"
+  "Dinner",
+  ALL_DAY_LABEL,
 ];
 
-// Venue options
-const VENUES = [
-  'Areca I - The Banquet Hall',
-  'Areca II',
-  'Oasis - The Lawn',
-  'Pool-side Lawn',
-  '3rd floor Lounge',
-  'Board Room',
-  'Amber Restaurant',
-  'Sway Lounge Bar'
-];
+const sessionSchema = z
+  .object({
+    id: z.string(),
+    sessionName: z.string().min(1, "Session name is required"),
+    sessionLabel: z.string().optional(),
+    venue: z.string().min(1, "Venue is required"),
+    startTime: z.string().optional(),
+    endTime: z.string().optional(),
+    sessionDate: z.date(),
+    paxCount: z.number().default(0),
+    specialInstructions: z.string().optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.sessionLabel === ALL_DAY_LABEL) {
+      return;
+    }
 
-const sessionSchema = z.object({
-  id: z.string(),
-  sessionName: z.string().min(1, "Session name is required"),
-  sessionLabel: z.string().optional(),
-  venue: z.string().min(1, "Venue is required"),
-  startTime: z.string().min(1, "Start time is required"),
-  endTime: z.string().min(1, "End time is required"),
-  sessionDate: z.date(),
-  paxCount: z.number().default(0),
-  specialInstructions: z.string().optional(),
-});
+    if (!data.startTime) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["startTime"],
+        message: "Start time is required",
+      });
+    }
+
+    if (!data.endTime) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["endTime"],
+        message: "End time is required",
+      });
+    }
+  });
 
 interface EnquirySessionManagementProps {
   sessions: z.infer<typeof sessionSchema>[];
@@ -47,6 +60,7 @@ interface EnquirySessionManagementProps {
   eventStartDate?: string;
   eventEndDate?: string;
   eventDuration?: number;
+  eventDates?: string[];
   disabled?: boolean;
   hideHeader?: boolean; // Hide the internal header when parent provides its own
   sessionStartIndex?: number; // Optional starting index for session numbering
@@ -58,14 +72,16 @@ export default function EnquirySessionManagement({
   eventStartDate,
   eventEndDate,
   eventDuration = 1,
+  eventDates = [],
   disabled = false,
   hideHeader = false,
   sessionStartIndex = 0
 }: EnquirySessionManagementProps) {
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const { data: venues = [], isLoading: venuesLoading, isError: venuesError } = useVenues();
 
   // Helper function to calculate duration between two times
-  const calculateDuration = (startTime: string, endTime: string): string => {
+  const calculateDuration = (startTime?: string, endTime?: string): string => {
     if (!startTime || !endTime) return '';
     
     const [startHour, startMin] = startTime.split(':').map(Number);
@@ -87,6 +103,42 @@ export default function EnquirySessionManagement({
 
   // Don't auto-add first session - user must click "Add Session" button
 
+  const parsedEventDates = useMemo(() => {
+    return (eventDates || [])
+      .map((date) => {
+        const parsed = new Date(date);
+        if (isNaN(parsed.getTime())) {
+          return null;
+        }
+        const value = parsed.toISOString().split('T')[0];
+        return {
+          value,
+          label: parsed.toLocaleDateString('en-US', {
+            weekday: 'short',
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+          }),
+        };
+      })
+      .filter((dateOption): dateOption is { value: string; label: string } => Boolean(dateOption));
+  }, [eventDates]);
+
+  const getDefaultSessionDate = () => {
+    if (parsedEventDates.length > 0) {
+      return new Date(parsedEventDates[0].value);
+    }
+
+    if (eventStartDate) {
+      const start = new Date(eventStartDate);
+      if (!isNaN(start.getTime())) {
+        return start;
+      }
+    }
+
+    return new Date();
+  };
+
   const addSession = () => {
     const newSession = {
       id: Math.random().toString(36).substr(2, 9),
@@ -95,7 +147,7 @@ export default function EnquirySessionManagement({
       venue: "",
       startTime: "",
       endTime: "",
-      sessionDate: eventStartDate ? new Date(eventStartDate) : new Date(),
+      sessionDate: getDefaultSessionDate(),
       paxCount: 0,
       specialInstructions: "",
     };
@@ -106,15 +158,18 @@ export default function EnquirySessionManagement({
     setSessions(sessions.filter(s => s.id !== sessionId));
   };
 
-  const updateSession = (sessionId: string, field: string, value: any) => {
-    setSessions(sessions.map(session => 
-      session.id === sessionId 
-        ? { ...session, [field]: value }
-        : session
-    ));
+  const updateSession = (sessionId: string, field: keyof z.infer<typeof sessionSchema>, value: unknown) => {
+    setSessions(prevSessions =>
+      prevSessions.map(session =>
+        session.id === sessionId
+          ? { ...session, [field]: value }
+          : session
+      )
+    );
   };
 
-  const validateSessionTime = (startTime: string, endTime: string) => {
+  const validateSessionTime = (startTime?: string, endTime?: string, isAllDay?: boolean) => {
+    if (isAllDay) return true;
     if (!startTime || !endTime) return true;
     
     const [startHour, startMin] = startTime.split(':').map(Number);
@@ -189,8 +244,11 @@ export default function EnquirySessionManagement({
             </div>
           )}
 
-          {sessions.map((session, index) => (
-        <div key={session.id} className="border border-gray-200 rounded-lg p-4 space-y-4">
+          {sessions.map((session, index) => {
+            const isAllDaySession = session.sessionLabel === ALL_DAY_LABEL;
+
+            return (
+              <div key={session.id} className="border border-gray-200 rounded-lg p-4 space-y-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Badge variant="outline" className="text-xs">
@@ -222,34 +280,43 @@ export default function EnquirySessionManagement({
             {/* Session Name */}
             <div className="space-y-2">
               <Label htmlFor={`sessionName-${session.id}`}>Session Name *</Label>
-              <Select
+              <Input
+                id={`sessionName-${session.id}`}
                 value={session.sessionName}
-                onValueChange={(value) => updateSession(session.id, 'sessionName', value)}
+                onChange={(e) => updateSession(session.id, "sessionName", e.target.value)}
+                placeholder="Enter session title (e.g., Welcome Ceremony)"
+                disabled={disabled}
+              />
+            </div>
+
+            {/* Day Session */}
+            <div className="space-y-2">
+              <Label htmlFor={`daySession-${session.id}`}>Day Session *</Label>
+              <Select
+                value={session.sessionLabel || ""}
+                onValueChange={(value) => {
+                  updateSession(session.id, "sessionLabel", value);
+                  if (value === ALL_DAY_LABEL) {
+                    updateSession(session.id, "startTime", "00:00");
+                    updateSession(session.id, "endTime", "23:59");
+                  } else if (session.sessionLabel === ALL_DAY_LABEL) {
+                    updateSession(session.id, "startTime", "");
+                    updateSession(session.id, "endTime", "");
+                  }
+                }}
                 disabled={disabled}
               >
-                <SelectTrigger id={`sessionName-${session.id}`}>
-                  <SelectValue placeholder="Select session name" />
+                <SelectTrigger id={`daySession-${session.id}`}>
+                  <SelectValue placeholder="Select day session" />
                 </SelectTrigger>
                 <SelectContent>
-                  {SESSION_NAME_OPTIONS.map((name) => (
-                    <SelectItem key={name} value={name}>
-                      {name}
+                  {DAY_SESSION_OPTIONS.map((option) => (
+                    <SelectItem key={option} value={option}>
+                      {option}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-            </div>
-
-            {/* Custom Label */}
-            <div className="space-y-2">
-              <Label htmlFor={`sessionLabel-${session.id}`}>Custom Label</Label>
-              <Input
-                id={`sessionLabel-${session.id}`}
-                value={session.sessionLabel || ''}
-                onChange={(e) => updateSession(session.id, 'sessionLabel', e.target.value)}
-                placeholder="e.g., Main Event, Cocktail"
-                disabled={disabled}
-              />
             </div>
 
             {/* Venue */}
@@ -257,26 +324,58 @@ export default function EnquirySessionManagement({
               <Label htmlFor={`venue-${session.id}`}>Venue *</Label>
               <Select
                 value={session.venue}
-                onValueChange={(value) => updateSession(session.id, 'venue', value)}
-                disabled={disabled}
+                onValueChange={(value) => updateSession(session.id, "venue", value)}
+                disabled={disabled || venuesLoading || venuesError}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Select venue" />
                 </SelectTrigger>
                 <SelectContent>
-                  {VENUES.map((venue) => (
-                    <SelectItem key={venue} value={venue}>
-                      {venue}
+                  {venues.length === 0 ? (
+                    <SelectItem disabled value="no-venues">
+                      {venuesLoading
+                        ? "Loading venues..."
+                        : venuesError
+                          ? "Failed to load venues"
+                          : "No venues available"}
                     </SelectItem>
-                  ))}
+                  ) : (
+                    venues.map((venue) => (
+                      <SelectItem key={venue.id ?? venue.name} value={venue.name}>
+                        {venue.name}
+                      </SelectItem>
+                    ))
+                  )}
                 </SelectContent>
               </Select>
             </div>
 
-            {/* Session Date (for multi-day events) */}
-            {eventStartDate && eventEndDate && eventDuration > 1 && (
-              <div className="space-y-2">
-                <Label htmlFor={`sessionDate-${session.id}`}>Session Date *</Label>
+            {/* Session Date */}
+            <div className="space-y-2">
+              <Label htmlFor={`sessionDate-${session.id}`}>Session Date *</Label>
+              {parsedEventDates.length > 0 ? (
+                <>
+                  <Select
+                    value={session.sessionDate ? session.sessionDate.toISOString().split('T')[0] : ""}
+                    onValueChange={(value) => updateSession(session.id, 'sessionDate', new Date(value))}
+                    disabled={disabled}
+                  >
+                    <SelectTrigger id={`sessionDate-${session.id}`}>
+                      <SelectValue placeholder="Select session date" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {parsedEventDates.map((dateOption, index) => (
+                        <SelectItem key={dateOption.value} value={dateOption.value}>
+                          Day {index + 1} • {dateOption.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    📅 Event runs from {parsedEventDates[0]?.label} to {parsedEventDates[parsedEventDates.length - 1]?.label} ({eventDuration} {eventDuration > 1 ? "days" : "day"})
+                  </p>
+                </>
+              ) : (
                 <div className="relative">
                   <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4 pointer-events-none" />
                   <Input
@@ -290,41 +389,46 @@ export default function EnquirySessionManagement({
                     className="pl-10 font-medium"
                   />
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  📅 Event runs from {new Date(eventStartDate).toLocaleDateString()} to {new Date(eventEndDate).toLocaleDateString()} ({eventDuration} days)
-                </p>
-              </div>
-            )}
-
-            {/* Start Time */}
-            <div className="space-y-2">
-              <Label htmlFor={`startTime-${session.id}`}>Start Time *</Label>
-              <TimePicker
-                id={`startTime-${session.id}`}
-                value={session.startTime || ""}
-                onChange={(value) => updateSession(session.id, 'startTime', value)}
-                disabled={disabled}
-              />
-            </div>
-
-            {/* End Time */}
-            <div className="space-y-2">
-              <Label htmlFor={`endTime-${session.id}`}>End Time *</Label>
-              <TimePicker
-                id={`endTime-${session.id}`}
-                value={session.endTime || ""}
-                onChange={(value) => updateSession(session.id, 'endTime', value)}
-                disabled={disabled}
-              />
-              {session.startTime && session.endTime && !validateSessionTime(session.startTime, session.endTime) && (
-                <Alert className="border-red-200 bg-red-50">
-                  <AlertTriangle className="h-4 w-4 text-red-600" />
-                  <AlertDescription className="text-red-800 text-sm">
-                    ⚠️ End time must be after start time
-                  </AlertDescription>
-                </Alert>
               )}
             </div>
+
+            {/* Start & End Time */}
+            {!isAllDaySession ? (
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor={`startTime-${session.id}`}>Start Time *</Label>
+                  <TimePicker
+                    id={`startTime-${session.id}`}
+                    value={session.startTime || ""}
+                    onChange={(value) => updateSession(session.id, 'startTime', value)}
+                    disabled={disabled}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor={`endTime-${session.id}`}>End Time *</Label>
+                  <TimePicker
+                    id={`endTime-${session.id}`}
+                    value={session.endTime || ""}
+                    onChange={(value) => updateSession(session.id, 'endTime', value)}
+                    disabled={disabled}
+                  />
+                  {session.startTime && session.endTime && !validateSessionTime(session.startTime, session.endTime, isAllDaySession) && (
+                    <Alert className="border-red-200 bg-red-50">
+                      <AlertTriangle className="h-4 w-4 text-red-600" />
+                      <AlertDescription className="text-red-800 text-sm">
+                        ⚠️ End time must be after start time
+                      </AlertDescription>
+                    </Alert>
+                  )}
+                </div>
+              </>
+            ) : (
+              <div className="md:col-span-2 flex items-center gap-2 rounded-md border border-dashed border-primary/40 bg-primary/5 px-3 py-2 text-sm text-primary">
+                <Clock className="h-4 w-4" />
+                <span>All-day session selected — timing details are not required.</span>
+              </div>
+            )}
 
           </div>
 
@@ -339,8 +443,9 @@ export default function EnquirySessionManagement({
               disabled={disabled}
             />
           </div>
-        </div>
-      ))}
+              </div>
+            );
+          })}
           {/* Don't show "Add Session" button when header is hidden - only one session at a time */}
         </>
       )}

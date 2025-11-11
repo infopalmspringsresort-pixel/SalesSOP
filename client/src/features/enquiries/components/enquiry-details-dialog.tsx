@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQueryClient, useMutation, useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -25,6 +25,16 @@ import QuotationForm from "../../quotations/components/quotation-form";
 import QuotationHistory from "../../quotations/components/quotation-history";
 import EnquiryTransferDialog from "@/components/enquiry-transfer-dialog";
 import { z } from "zod";
+
+const DAY_IN_MS = 24 * 60 * 60 * 1000;
+
+const DAY_SESSION_ORDER: Record<string, number> = {
+  Breakfast: 0,
+  Lunch: 1,
+  "Hi-Tea": 2,
+  Dinner: 3,
+  "All Day": 4,
+};
 
 interface EnquiryDetailsDialogProps {
   enquiry: Enquiry | null;
@@ -102,6 +112,114 @@ export default function EnquiryDetailsDialog({ enquiry: initialEnquiry, open, on
     paxCount: z.number().default(0),
     specialInstructions: z.string().optional(),
   });
+
+  const eventStartMidnight = useMemo(() => {
+    if (!enquiry?.eventDate) return undefined;
+    const start = new Date(enquiry.eventDate);
+    if (isNaN(start.getTime())) return undefined;
+    start.setHours(0, 0, 0, 0);
+    return start;
+  }, [enquiry?.eventDate]);
+
+  const sessionNumberMap = useMemo(() => {
+    const map = new Map<string, number>();
+    sessions.forEach((session, index) => {
+      const sessionId = session.id || (session as any)._id || `temp-${index}`;
+      map.set(sessionId, index + 1);
+    });
+    return map;
+  }, [sessions]);
+
+  const groupedSessions = useMemo(() => {
+    if (!sessions.length) return [];
+
+    const groupMap = new Map<
+      string,
+      {
+        displayDate: Date;
+        sessions: any[];
+      }
+    >();
+
+    sessions.forEach((session) => {
+      const rawDate =
+        session.sessionDate instanceof Date
+          ? new Date(session.sessionDate)
+          : new Date(session.sessionDate);
+
+      if (isNaN(rawDate.getTime())) {
+        return;
+      }
+
+      const dateKey = rawDate.toISOString().split("T")[0];
+      if (!groupMap.has(dateKey)) {
+        groupMap.set(dateKey, {
+          displayDate: new Date(rawDate),
+          sessions: [],
+        });
+      }
+      groupMap.get(dateKey)!.sessions.push(session);
+    });
+
+    const sortedGroups = Array.from(groupMap.entries())
+      .map(([key, value]) => ({
+        key,
+        ...value,
+      }))
+      .sort((a, b) => {
+        const aDate = new Date(`${a.key}T00:00:00`);
+        const bDate = new Date(`${b.key}T00:00:00`);
+        return aDate.getTime() - bDate.getTime();
+      });
+
+    return sortedGroups.map(({ key, displayDate, sessions: groupSessions }) => {
+      const normalizedDate = new Date(`${key}T00:00:00`);
+      const dayNumber = eventStartMidnight
+        ? Math.floor((normalizedDate.getTime() - eventStartMidnight.getTime()) / DAY_IN_MS) + 1
+        : undefined;
+
+      const formattedDate = displayDate.toLocaleDateString("en-US", {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      });
+
+      const title = dayNumber ? `Day ${dayNumber} • ${formattedDate}` : formattedDate;
+
+      const sortedSessionsForDay = [...groupSessions].sort((a, b) => {
+        const orderA =
+          a.sessionLabel && DAY_SESSION_ORDER[a.sessionLabel] !== undefined
+            ? DAY_SESSION_ORDER[a.sessionLabel]
+            : Number.MAX_SAFE_INTEGER;
+        const orderB =
+          b.sessionLabel && DAY_SESSION_ORDER[b.sessionLabel] !== undefined
+            ? DAY_SESSION_ORDER[b.sessionLabel]
+            : Number.MAX_SAFE_INTEGER;
+
+        if (orderA !== orderB) {
+          return orderA - orderB;
+        }
+
+        if (a.startTime && b.startTime) {
+          const timeDiff = a.startTime.localeCompare(b.startTime);
+          if (timeDiff !== 0) {
+            return timeDiff;
+          }
+        }
+
+        return (a.sessionName || "").localeCompare(b.sessionName || "");
+      });
+
+      return {
+        key,
+        title,
+        dayNumber,
+        date: displayDate,
+        sessions: sortedSessionsForDay,
+      };
+    });
+  }, [sessions, eventStartMidnight]);
 
   // Load sessions when enquiry data changes - only load sessions with complete details
   useEffect(() => {
@@ -1108,194 +1226,232 @@ export default function EnquiryDetailsDialog({ enquiry: initialEnquiry, open, on
 
             <div className="space-y-4">
               {sessions.length > 0 ? (
-                // Show all sessions - edit form for the one being edited, view mode for others
-                <div className="space-y-3">
-                  {sessions.map((session, index) => {
-                    // Normalize session ID for comparison (handle both id and _id)
-                    const sessionId = session.id || (session as any)._id || `temp-${index}`;
-                    // Check if this session is currently being edited (only if both IDs exist and match)
-                    const isBeingEdited = editingSessionId !== null && editingSessionId !== undefined && editingSessionId === sessionId;
-                    
-                    // If this session is being edited, show edit form
-                    if (isBeingEdited) {
-                      return (
-                        <Card key={sessionId || index}>
-                          <CardContent className="p-4">
-                            <EnquirySessionManagement
-                              sessions={[session]}
-                              setSessions={(newSessions) => {
-                                // Update only this specific session
-                                const updatedSession = { ...newSessions[0], id: sessionId }; // Preserve the session ID
-                                setSessions(sessions.map(s => {
-                                  const sId = s.id || (s as any)._id;
-                                  return sId === editingSessionId ? updatedSession : s;
-                                }));
-                              }}
-                              eventStartDate={enquiry?.eventDate ? new Date(enquiry.eventDate).toISOString().split('T')[0] : undefined}
-                              eventEndDate={enquiry?.eventEndDate ? new Date(enquiry.eventEndDate).toISOString().split('T')[0] : undefined}
-                              eventDuration={enquiry?.eventDuration || 1}
-                              hideHeader={true}
-                              sessionStartIndex={index}
-                            />
-                            <div className="flex justify-end gap-2 pt-4 border-t mt-4">
-                              <Button
-                                variant="outline"
-                                onClick={() => {
-                                  // Reload session from enquiry to restore original state
-                                  if (enquiry?.sessions) {
-                                    const originalSession = enquiry.sessions.find((s: any) => {
-                                      const sId = (s as any).id || (s as any)._id;
-                                      return sId === editingSessionId;
-                                    });
-                                    if (originalSession) {
-                                      const updatedSessions = sessions.map(s => {
-                                        const sId = s.id || (s as any)._id;
-                                        return sId === editingSessionId ? {
-                                          ...originalSession,
-                                          id: editingSessionId,
-                                          sessionDate: new Date((originalSession as any).sessionDate)
-                                        } : s;
-                                      });
-                                      setSessions(updatedSessions);
-                                    }
-                                  }
-                                  setEditingSessionId(null);
-                                  setIsEditingSessions(false);
-                                }}
-                              >
-                                Cancel
-                              </Button>
-                              <Button
-                                onClick={() => {
-                                  // Validate and save this session
-                                  const currentSession = sessions.find(s => {
-                                    const sId = s.id || (s as any)._id;
-                                    return sId === editingSessionId;
-                                  });
-                                  if (currentSession?.sessionName && 
-                                      currentSession?.venue && 
-                                      currentSession?.startTime && 
-                                      currentSession?.endTime) {
-                                    updateSessionsMutation.mutate(sessions);
-                                  } else {
-                                    toast({
-                                      title: 'Cannot save',
-                                      description: 'Please fill in all required fields for this session.',
-                                      variant: 'destructive',
-                                    });
-                                  }
-                                }}
-                                disabled={updateSessionsMutation.isPending}
-                              >
-                                {updateSessionsMutation.isPending ? 'Saving...' : 'Save Session'}
-                              </Button>
-                            </div>
-                          </CardContent>
-                        </Card>
-                      );
-                    }
-                    
-                    // Otherwise, show view mode for this session
-                    // Check if session is complete (has all required fields)
-                    const isComplete = session.sessionName && 
-                                      session.venue && 
-                                      session.startTime && 
-                                      session.endTime;
-                    
-                    return (
-                      <Card key={sessionId || index}>
-                        <CardContent className="p-4">
-                          <div className="flex items-start justify-between">
-                            <div className="flex-1 space-y-2">
-                              <div className="flex items-center gap-2">
-                                <Badge variant="outline">Session {index + 1}</Badge>
-                                {enquiry?.eventDuration && enquiry.eventDuration > 1 && (
-                                  <Badge variant="secondary">
-                                    {new Date(session.sessionDate).toLocaleDateString('en-US', { 
-                                      weekday: 'short', 
-                                      month: 'short', 
-                                      day: 'numeric' 
-                                    })}
-                                  </Badge>
-                                )}
-                              </div>
-                              {isComplete ? (
-                                // Show complete session details
-                                <>
-                                  <h4 className="font-medium text-lg">{session.sessionName}</h4>
-                                  {session.sessionLabel && (
-                                    <p className="text-sm text-muted-foreground">{session.sessionLabel}</p>
-                                  )}
-                                  <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                                    <div className="flex items-center gap-1">
-                                      <MapPin className="w-4 h-4" />
-                                      <span className="font-medium">{session.venue}</span>
+                <div className="space-y-6">
+                  {(groupedSessions.length > 0
+                    ? groupedSessions
+                    : [{ key: "ungrouped", title: "", dayNumber: undefined, sessions }]).map(
+                    (group: any, groupIndex: number) => (
+                      <div key={group.key ?? groupIndex} className="space-y-3">
+                        {group.title ? (
+                          <div className="flex items-center gap-2">
+                            <Badge variant="outline" className="px-2 py-1 text-xs font-semibold">
+                              {group.dayNumber ? `Day ${group.dayNumber}` : "Session Date"}
+                            </Badge>
+                            <span className="text-sm text-muted-foreground">{group.title}</span>
+                          </div>
+                        ) : null}
+                        <div className="space-y-3">
+                          {group.sessions.map((session: any, innerIndex: number) => {
+                            const sessionId = session.id || (session as any)._id || `temp-${innerIndex}`;
+                            const sessionNumber = sessionNumberMap.get(sessionId) ?? innerIndex + 1;
+                            const isBeingEdited =
+                              editingSessionId !== null &&
+                              editingSessionId !== undefined &&
+                              editingSessionId === sessionId;
+
+                            if (isBeingEdited) {
+                              return (
+                                <Card key={sessionId}>
+                                  <CardContent className="p-4">
+                                    <EnquirySessionManagement
+                                      sessions={[session]}
+                                      setSessions={(newSessions) => {
+                                        const updatedSession = { ...newSessions[0], id: sessionId };
+                                        setSessions((prevSessions) =>
+                                          prevSessions.map((s) => {
+                                            const sId = s.id || (s as any)._id;
+                                            return sId === editingSessionId ? updatedSession : s;
+                                          })
+                                        );
+                                      }}
+                                      eventStartDate={
+                                        enquiry?.eventDate
+                                          ? new Date(enquiry.eventDate).toISOString().split("T")[0]
+                                          : undefined
+                                      }
+                                      eventEndDate={
+                                        enquiry?.eventEndDate
+                                          ? new Date(enquiry.eventEndDate).toISOString().split("T")[0]
+                                          : undefined
+                                      }
+                                      eventDuration={enquiry?.eventDuration || 1}
+                                      eventDates={
+                                        Array.isArray(enquiry?.eventDates)
+                                          ? (enquiry?.eventDates || [])
+                                              .map((date: any) => {
+                                                const parsed = new Date(date);
+                                                return isNaN(parsed.getTime())
+                                                  ? null
+                                                  : parsed.toISOString().split("T")[0];
+                                              })
+                                              .filter((value): value is string => Boolean(value))
+                                          : []
+                                      }
+                                      hideHeader={true}
+                                      sessionStartIndex={Math.max(sessionNumber - 1, 0)}
+                                    />
+                                    <div className="flex justify-end gap-2 pt-4 border-t mt-4">
+                                      <Button
+                                        variant="outline"
+                                        onClick={() => {
+                                          if (enquiry?.sessions) {
+                                            const originalSession = enquiry.sessions.find((s: any) => {
+                                              const sId = (s as any).id || (s as any)._id;
+                                              return sId === editingSessionId;
+                                            });
+                                            if (originalSession) {
+                                              setSessions((prevSessions) =>
+                                                prevSessions.map((s) => {
+                                                  const sId = s.id || (s as any)._id;
+                                                  return sId === editingSessionId
+                                                    ? {
+                                                        ...originalSession,
+                                                        id: editingSessionId,
+                                                        sessionDate: new Date(
+                                                          (originalSession as any).sessionDate
+                                                        ),
+                                                      }
+                                                    : s;
+                                                })
+                                              );
+                                            }
+                                          }
+                                          setEditingSessionId(null);
+                                          setIsEditingSessions(false);
+                                        }}
+                                      >
+                                        Cancel
+                                      </Button>
+                                      <Button
+                                        onClick={() => {
+                                          const currentSession = sessions.find((s) => {
+                                            const sId = s.id || (s as any)._id;
+                                            return sId === editingSessionId;
+                                          });
+                                          if (
+                                            currentSession?.sessionName &&
+                                            currentSession?.venue &&
+                                            currentSession?.startTime &&
+                                            currentSession?.endTime
+                                          ) {
+                                            updateSessionsMutation.mutate(sessions);
+                                          } else {
+                                            toast({
+                                              title: "Cannot save",
+                                              description: "Please fill in all required fields for this session.",
+                                              variant: "destructive",
+                                            });
+                                          }
+                                        }}
+                                        disabled={updateSessionsMutation.isPending}
+                                      >
+                                        {updateSessionsMutation.isPending ? "Saving..." : "Save Session"}
+                                      </Button>
                                     </div>
-                                    <div className="flex items-center gap-1">
-                                      <Clock className="w-4 h-4" />
-                                      {session.startTime} - {session.endTime}
+                                  </CardContent>
+                                </Card>
+                              );
+                            }
+
+                            const isComplete =
+                              session.sessionName && session.venue && session.startTime && session.endTime;
+
+                            return (
+                              <Card key={sessionId}>
+                                <CardContent className="p-4">
+                                  <div className="flex items-start justify-between gap-4">
+                                    <div className="flex-1 space-y-2">
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <Badge variant="outline">Session {sessionNumber}</Badge>
+                                        {group.title && (
+                                          <Badge variant="secondary">
+                                            {group.title.includes("•")
+                                              ? group.title.split("•")[1]?.trim()
+                                              : group.title}
+                                          </Badge>
+                                        )}
+                                      </div>
+                                      {isComplete ? (
+                                        <>
+                                          <h4 className="font-medium text-lg">{session.sessionName}</h4>
+                                          {session.sessionLabel && (
+                                            <p className="text-sm text-muted-foreground">{session.sessionLabel}</p>
+                                          )}
+                                          <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
+                                            <div className="flex items-center gap-1">
+                                              <MapPin className="w-4 h-4" />
+                                              <span className="font-medium">{session.venue}</span>
+                                            </div>
+                                            <div className="flex items-center gap-1">
+                                              <Clock className="w-4 h-4" />
+                                              {session.startTime} - {session.endTime}
+                                            </div>
+                                            {session.paxCount > 0 && (
+                                              <div className="flex items-center gap-1">
+                                                <Users className="w-4 h-4" />
+                                                {session.paxCount} guests
+                                              </div>
+                                            )}
+                                          </div>
+                                          {session.specialInstructions && (
+                                            <div className="mt-3 pt-3 border-t">
+                                              <p className="text-sm">
+                                                <strong className="text-foreground">Special Instructions:</strong>
+                                              </p>
+                                              <p className="text-sm text-muted-foreground mt-1">
+                                                {session.specialInstructions}
+                                              </p>
+                                            </div>
+                                          )}
+                                        </>
+                                      ) : (
+                                        <div className="text-sm text-muted-foreground italic">
+                                          Click Edit to fill in session details
+                                        </div>
+                                      )}
                                     </div>
-                                    {session.paxCount > 0 && (
-                                      <div className="flex items-center gap-1">
-                                        <Users className="w-4 h-4" />
-                                        {session.paxCount} guests
+                                    {enquiry?.status !== "booked" && enquiry?.status !== "lost" && (
+                                      <div className="flex items-center gap-2">
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          onClick={() => {
+                                            if (sessionId) {
+                                              setEditingSessionId(sessionId);
+                                              setIsEditingSessions(true);
+                                            }
+                                          }}
+                                          className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                                          title="Edit this session"
+                                        >
+                                          <Edit className="w-4 h-4" />
+                                        </Button>
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          onClick={() => {
+                                            const updatedSessions = sessions.filter((existing) => {
+                                              const existingId = existing.id || (existing as any)._id || "";
+                                              return existingId !== sessionId;
+                                            });
+                                            updateSessionsMutation.mutate(updatedSessions);
+                                          }}
+                                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                          title="Delete session"
+                                        >
+                                          <Trash2 className="w-4 h-4" />
+                                        </Button>
                                       </div>
                                     )}
                                   </div>
-                                  {session.specialInstructions && (
-                                    <div className="mt-3 pt-3 border-t">
-                                      <p className="text-sm">
-                                        <strong className="text-foreground">Special Instructions:</strong>
-                                      </p>
-                                      <p className="text-sm text-muted-foreground mt-1">{session.specialInstructions}</p>
-                                    </div>
-                                  )}
-                                </>
-                              ) : (
-                                // Show empty/incomplete session
-                                <div className="text-sm text-muted-foreground italic">
-                                  Click Edit to fill in session details
-                                </div>
-                              )}
-                            </div>
-                            {enquiry?.status !== 'booked' && enquiry?.status !== 'lost' && (
-                              <div className="flex items-center gap-2 ml-4">
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => {
-                                    // Enter edit mode to edit ONLY THIS specific session
-                                    const sId = session.id || (session as any)._id || `temp-${index}`;
-                                    if (sId) {
-                                      setEditingSessionId(sId);
-                                      setIsEditingSessions(true);
-                                    }
-                                  }}
-                                  className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                                  title="Edit this session"
-                                >
-                                  <Edit className="w-4 h-4" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => {
-                                    // Delete this specific session directly
-                                    const updatedSessions = sessions.filter((_, i) => i !== index);
-                                    updateSessionsMutation.mutate(updatedSessions);
-                                  }}
-                                  className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                                  title="Delete session"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </Button>
-                              </div>
-                            )}
-                          </div>
-                        </CardContent>
-                      </Card>
-                    );
-                  })}
+                                </CardContent>
+                              </Card>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )
+                  )}
                 </div>
               ) : (
                 // Empty State

@@ -17,6 +17,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { useState } from "react";
 import { EnquiryForm } from "@/features/enquiries";
+import PhoneLookupDialog from "@/features/enquiries/components/phone-lookup-dialog";
 import { useLocation } from "wouter";
 import type { EnquiryWithRelations, BookingWithRelations } from "@/types";
 import { formatDate } from "@/utils/dateFormat";
@@ -171,6 +172,8 @@ export default function Dashboard() {
   const [rescheduleTime, setRescheduleTime] = useState('');
   const [rescheduleNotes, setRescheduleNotes] = useState('');
   const [globalSearchQuery, setGlobalSearchQuery] = useState('');
+  const [showPhoneLookup, setShowPhoneLookup] = useState(false);
+  const [prefilledData, setPrefilledData] = useState<{ clientName?: string; email?: string; city?: string; contactNumber?: string } | null>(null);
   const [, navigate] = useLocation();
 
   useEffect(() => {
@@ -744,13 +747,41 @@ export default function Dashboard() {
         {/* Floating Action Button */}
         <Button
           className="fixed bottom-6 right-6 w-14 h-14 lg:w-16 lg:h-16 rounded-full shadow-lg touch-manipulation z-40"
-          onClick={() => setShowEnquiryForm(true)}
+          onClick={() => {
+            setPrefilledData(null);
+            setShowPhoneLookup(true);
+          }}
           data-testid="button-floating-new-enquiry"
         >
           <Plus className="w-6 h-6 lg:w-7 lg:h-7" />
         </Button>
 
-        <EnquiryForm open={showEnquiryForm} onOpenChange={setShowEnquiryForm} />
+        <PhoneLookupDialog
+          open={showPhoneLookup}
+          onOpenChange={(open) => {
+            setShowPhoneLookup(open);
+            if (!open) {
+              // If closed without selecting, keep prefilled data untouched
+              // (it will be reset when the form closes)
+            }
+          }}
+          onPhoneFound={(data) => {
+            setPrefilledData(data);
+            setShowPhoneLookup(false);
+            setShowEnquiryForm(true);
+          }}
+        />
+
+        <EnquiryForm
+          open={showEnquiryForm}
+          onOpenChange={(open) => {
+            setShowEnquiryForm(open);
+            if (!open) {
+              setPrefilledData(null);
+            }
+          }}
+          prefilledData={prefilledData}
+        />
         <BookingDetailsDialog 
           booking={selectedBooking} 
           open={showBookingDetails} 

@@ -18,18 +18,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { Plus, Trash2, Calculator, Utensils } from "lucide-react";
 import { z } from "zod";
 import MenuSelectionFlow from "@/features/quotations/components/menu-selection-flow";
-
-// Venue options with their corresponding spaces
-const venueOptions = [
-  { value: 'Areca I - The Banquet Hall', label: 'Areca I - The Banquet Hall', space: '15000 Sq Ft' },
-  { value: 'Areca II Hall', label: 'Areca II Hall', space: '3500 Sq Ft' },
-  { value: 'Oasis - The Lawn', label: 'Oasis - The Lawn', space: '23000 Sq Ft' },
-  { value: 'Pool-side Lawn', label: 'Pool-side Lawn', space: '7500 Sq Ft' },
-  { value: '3rd Floor Lounge', label: '3rd Floor Lounge', space: '1000 Sq Ft' },
-  { value: 'Amber Restaurant', label: 'Amber Restaurant', space: '' },
-  { value: 'Sway Lounge Bar', label: 'Sway Lounge Bar', space: '' },
-  { value: 'Conference Hall', label: 'Conference Hall', space: '' },
-];
+import { useVenues } from "@/hooks/useVenues";
 
 // Room categories with groups and default occupancy
 const roomCategories = [
@@ -142,8 +131,19 @@ export default function QuotationForm({
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const [showMenuSelection, setShowMenuSelection] = useState(false);
-  const [selectedMenuPackage, setSelectedMenuPackage] = useState<string>('');
-  const [customMenuItems, setCustomMenuItems] = useState<any>({});
+  const [selectedMenuPackages, setSelectedMenuPackages] = useState<string[]>([]);
+  const [customMenuItems, setCustomMenuItems] = useState<Record<string, any>>({});
+  const { data: venues = [], isLoading: venuesLoading, isError: venuesError } = useVenues();
+
+  const venueOptions = useMemo(
+    () =>
+      venues.map((venue) => ({
+        value: venue.name,
+        label: venue.name,
+        space: venue.area ? `${venue.area.toLocaleString()} Sq Ft` : "",
+      })),
+    [venues]
+  );
 
   // Fetch enquiry details to get eventDate and eventType
   const { data: enquiry } = useQuery<any>({
@@ -456,20 +456,21 @@ Room Subtotal: ₹${totals.roomSubtotal.toLocaleString()}
 Room GST (12%): ₹${totals.roomGstAmount.toLocaleString()}
 Room Total: ₹${totals.roomTotal.toLocaleString()}
 
-${quotationType === 'with_food' && selectedMenuPackage ? `
-FOOD PACKAGE:
-${Object.entries(customMenuItems).map(([packageId, customData]: [string, any]) => {
-  const selectedItems = customData?.selectedItems || [];
-      return `Selected Package: ${packageId}
+${quotationType === 'with_food' && selectedMenuPackages.length > 0 ? `
+FOOD PACKAGES:
+${selectedMenuPackages.map((packageId) => {
+  const customData = customMenuItems?.[packageId] || {};
+  const selectedItems = Array.isArray(customData.selectedItems) ? customData.selectedItems : [];
+  return `Selected Package: ${packageId}
 Included Items: ${selectedItems.length}
 Total Food Items: ${selectedItems.length}`;
-}).join('\n')}
+}).join('\n\n')}
 ` : ''}
 
 SUMMARY:
 Venue Total (incl. 18% GST): ₹${totals.venueTotal.toLocaleString()}
 Room Total (incl. 12% GST): ₹${totals.roomTotal.toLocaleString()}
-${quotationType === 'with_food' && selectedMenuPackage ? 'Food Package: Included' : ''}
+${quotationType === 'with_food' && selectedMenuPackages.length > 0 ? 'Food Packages: Included' : ''}
 Grand Total: ₹${totals.finalAmount.toLocaleString()}
 
 SPECIAL INSTRUCTIONS:
@@ -520,6 +521,48 @@ ${data.terms}`,
 
   const onSubmit = (data: z.infer<typeof quotationFormSchema>) => {
     createQuotationMutation.mutate(data);
+  };
+
+  const handleMenuSelectionFlowSave = (selectedPackageIds: string[], customMenuItemsData: Record<string, any>) => {
+    if (!selectedPackageIds || selectedPackageIds.length === 0) {
+      setSelectedMenuPackages([]);
+      setCustomMenuItems({});
+      setShowMenuSelection(false);
+      return;
+    }
+
+    const normalizedCustomMenuItems = selectedPackageIds.reduce<Record<string, any>>((acc, packageId) => {
+      const packageData = customMenuItemsData?.[packageId] || {};
+      const selectedItems = Array.isArray(packageData.selectedItems)
+        ? packageData.selectedItems
+        : packageData.selectedItems
+          ? [packageData.selectedItems]
+          : [];
+      const customItems = Array.isArray(packageData.customItems)
+        ? packageData.customItems
+        : packageData.customItems
+          ? [packageData.customItems]
+          : [];
+      const rawCustomPrice = packageData?.customPackagePrice;
+      const parsedCustomPrice = typeof rawCustomPrice === 'number'
+        ? rawCustomPrice
+        : typeof rawCustomPrice === 'string'
+          ? parseFloat(rawCustomPrice)
+          : NaN;
+
+      acc[packageId] = {
+        ...packageData,
+        selectedItems,
+        customItems,
+        packageId,
+        customPackagePrice: Number.isFinite(parsedCustomPrice) && parsedCustomPrice >= 0 ? parsedCustomPrice : 0,
+      };
+      return acc;
+    }, {});
+
+    setSelectedMenuPackages(selectedPackageIds);
+    setCustomMenuItems(normalizedCustomMenuItems);
+    setShowMenuSelection(false);
   };
 
   const { venueSubtotal, roomSubtotal, venueGstAmount, roomGstAmount, venueTotal, roomTotal, finalAmount } = totals;
@@ -586,16 +629,32 @@ ${data.terms}`,
                         render={({ field }) => (
                           <FormItem>
                             <FormControl>
-                              <Select onValueChange={(value) => handleVenueChange(index, value)} value={field.value || ""} key={`venue-${index}-${field.value || 'empty'}`}>
+                              <Select
+                                onValueChange={(value) => handleVenueChange(index, value)}
+                                value={field.value || ""}
+                                key={`venue-${index}-${field.value || 'empty'}`}
+                                disabled={venuesLoading || venuesError}
+                              >
                                 <SelectTrigger>
                                   <SelectValue placeholder="Select venue" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  {venueOptions.map((venue) => (
-                                    <SelectItem key={venue.value} value={venue.value}>
-                                      {venue.label}
+                                  {venueOptions.length === 0 ? (
+                                    <SelectItem disabled value="no-venues">
+                                      {venuesLoading
+                                        ? "Loading venues..."
+                                        : venuesError
+                                          ? "Failed to load venues"
+                                          : "No venues available"}
                                     </SelectItem>
-                                  ))}
+                                  ) : (
+                                    venueOptions.map((venue) => (
+                                      <SelectItem key={venue.value} value={venue.value}>
+                                        {venue.label}
+                                        {venue.space ? ` - ${venue.space}` : ""}
+                                      </SelectItem>
+                                    ))
+                                  )}
                                 </SelectContent>
                               </Select>
                             </FormControl>
@@ -879,24 +938,39 @@ ${data.terms}`,
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  {selectedMenuPackage ? (
-                    <div className="space-y-3">
-                      <div className="p-3 bg-green-50 rounded-lg border">
-                        <div className="flex justify-between items-center mb-2">
-                          <span className="font-medium text-green-800">Selected Package:</span>
+                  {selectedMenuPackages.length > 0 ? (
+                    <div className="space-y-4">
+                      <div className="p-3 bg-green-50 rounded-lg border space-y-3">
+                        <div className="flex justify-between items-center">
+                          <span className="font-medium text-green-800">Selected Packages:</span>
                           <Badge variant="secondary" className="bg-green-100 text-green-800">
-                            {selectedMenuPackage}
+                            {selectedMenuPackages.length}
                           </Badge>
                         </div>
-                        {Object.entries(customMenuItems).map(([packageId, customData]: [string, any]) => {
-                          const selectedItems = customData?.selectedItems || [];
-                          return (
-                            <div key={packageId} className="text-sm text-green-700">
-                              <div>Included Items: {selectedItems.length}</div>
-                              <div className="font-medium">Total Food Items: {selectedItems.length}</div>
-                            </div>
-                          );
-                        })}
+
+                        <div className="space-y-3">
+                          {selectedMenuPackages.map((packageId) => {
+                            const customData = customMenuItems?.[packageId] || {};
+                            const selectedItems = Array.isArray(customData.selectedItems) ? customData.selectedItems : [];
+                            const basePackagePrice = typeof customData.customPackagePrice === 'number'
+                              ? customData.customPackagePrice
+                              : typeof customData.customPackagePrice === 'string'
+                                ? parseFloat(customData.customPackagePrice)
+                                : 0;
+                            const additionalItemsTotal = selectedItems.reduce((sum: number, item: any) => {
+                              return sum + (!item?.isPackageItem ? (item?.additionalPrice || 0) : 0);
+                            }, 0);
+                            return (
+                              <div key={packageId} className="text-sm text-green-700 border-b border-green-200 pb-2 last:border-b-0 last:pb-0">
+                                <div className="font-semibold text-green-800">{packageId}</div>
+                                <div>Package Rate: ₹{(basePackagePrice + additionalItemsTotal).toLocaleString()}</div>
+                                <div>Included Items: {selectedItems.filter((item: any) => item?.isPackageItem).length}</div>
+                                <div>Additional Items: {selectedItems.filter((item: any) => !item?.isPackageItem).length}</div>
+                                <div className="font-medium">Total Food Items: {selectedItems.length}</div>
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
                       <div className="flex gap-2">
                         <Button
@@ -911,7 +985,7 @@ ${data.terms}`,
                           type="button"
                           variant="outline"
                           onClick={() => {
-                            setSelectedMenuPackage('');
+                            setSelectedMenuPackages([]);
                             setCustomMenuItems({});
                           }}
                         >
@@ -1103,11 +1177,9 @@ ${data.terms}`,
     <MenuSelectionFlow
       open={showMenuSelection}
       onOpenChange={setShowMenuSelection}
-      onSave={(selectedPackage, customMenuItems) => {
-        setSelectedMenuPackage(selectedPackage);
-        setCustomMenuItems(customMenuItems);
-        setShowMenuSelection(false);
-      }}
+      onSave={handleMenuSelectionFlowSave}
+      initialSelectedPackages={selectedMenuPackages}
+      initialCustomMenuItems={customMenuItems}
     />
     </>
   );

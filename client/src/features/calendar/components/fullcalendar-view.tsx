@@ -6,35 +6,11 @@ import timeGridPlugin from '@fullcalendar/timegrid';
 import interactionPlugin from '@fullcalendar/interaction';
 import { useQuery } from "@tanstack/react-query";
 import type { BookingWithRelations } from "@/types";
+import { useVenues } from "@/hooks/useVenues";
 
 interface FullCalendarViewProps {
   view: 'timeline' | 'grid';
   onEventClick?: (bookingId: string) => void;
-}
-
-const VENUE_RESOURCES = [
-  { id: 'areca-i', title: 'Areca I - The Banquet Hall' },
-  { id: 'areca-ii', title: 'Areca II' },
-  { id: 'oasis-lawn', title: 'Oasis - The Lawn' },
-  { id: 'poolside-lawn', title: 'Pool-side Lawn' },
-  { id: 'lounge-3f', title: '3rd floor Lounge' },
-  { id: 'board-room', title: 'Board Room' },
-  { id: 'amber-restaurant', title: 'Amber Restaurant' },
-  { id: 'sway-lounge', title: 'Sway Lounge Bar' },
-];
-
-function getResourceId(venue: string): string {
-  const mapping: { [key: string]: string } = {
-    'Areca I - The Banquet Hall': 'areca-i',
-    'Areca II': 'areca-ii',
-    'Oasis - The Lawn': 'oasis-lawn',
-    'Pool-side Lawn': 'poolside-lawn',
-    '3rd floor Lounge': 'lounge-3f',
-    'Board Room': 'board-room',
-    'Amber Restaurant': 'amber-restaurant',
-    'Sway Lounge Bar': 'sway-lounge',
-  };
-  return mapping[venue] || venue.toLowerCase().replace(/\s+/g, '-');
 }
 
 function getStatusColor(status: string): string {
@@ -48,6 +24,7 @@ function getStatusColor(status: string): string {
 
 export default function FullCalendarView({ view, onEventClick }: FullCalendarViewProps) {
   const calendarRef = useRef<FullCalendar>(null);
+  const { data: venues = [] } = useVenues();
   
   const { data: bookings = [] } = useQuery<BookingWithRelations[]>({
     queryKey: ["/api/bookings"],
@@ -63,6 +40,68 @@ export default function FullCalendarView({ view, onEventClick }: FullCalendarVie
     },
   });
 
+  const dataVenueNames = useMemo(() => {
+    const names = new Set<string>();
+    (bookings || []).forEach((booking: any) => {
+      if (booking?.hall) {
+        names.add(booking.hall);
+      }
+      (booking?.sessions || []).forEach((session: any) => {
+        if (session?.venue) {
+          names.add(session.venue);
+        }
+      });
+    });
+    (enquiries || []).forEach((enquiry: any) => {
+      (enquiry?.sessions || []).forEach((session: any) => {
+        if (session?.venue) {
+          names.add(session.venue);
+        }
+      });
+    });
+    return Array.from(names);
+  }, [bookings, enquiries]);
+
+  const { resources: venueResources, nameToResourceId, fallbackResourceId } = useMemo(() => {
+    const resourceMap = new Map<string, { id: string; title: string }>();
+
+    (venues || []).forEach((venue) => {
+      const id = venue.id ?? venue.name;
+      resourceMap.set(venue.name, { id, title: venue.name });
+    });
+
+    dataVenueNames.forEach((name) => {
+      if (!name) return;
+      if (!resourceMap.has(name)) {
+        const slug = `custom-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+        resourceMap.set(name, { id: slug, title: name });
+      }
+    });
+
+    if (!resourceMap.has("Unassigned / TBD")) {
+      resourceMap.set("Unassigned / TBD", { id: "unassigned", title: "Unassigned / TBD" });
+    }
+
+    const resources = Array.from(resourceMap.values());
+    const nameToId = new Map<string, string>();
+    resources.forEach((resource) => {
+      nameToId.set(resource.title, resource.id);
+    });
+
+    const fallbackId = nameToId.get("Unassigned / TBD") ?? "unassigned";
+
+    return {
+      resources,
+      nameToResourceId: nameToId,
+      fallbackResourceId: fallbackId,
+    };
+  }, [venues, dataVenueNames]);
+
+  const resolveResourceId = (venueName?: string | null) => {
+    if (!venueName) return fallbackResourceId;
+    return nameToResourceId.get(venueName) ?? fallbackResourceId;
+  };
+
   // Convert bookings and enquiries to FullCalendar events
   const events = useMemo(() => {
     const allEvents = [];
@@ -77,7 +116,7 @@ export default function FullCalendarView({ view, onEventClick }: FullCalendarVie
         end: enquiry.eventDate,
         backgroundColor: '#EAB308', // Yellow for tentative
         borderColor: '#EAB308',
-        resourceId: 'areca-i', // Default venue
+        resourceId: resolveResourceId((enquiry as any)?.preferredVenue || enquiry?.hall),
         extendedProps: {
           bookingId: enquiry.id,
           clientName: enquiry.clientName,
@@ -100,7 +139,7 @@ export default function FullCalendarView({ view, onEventClick }: FullCalendarVie
         end: booking.eventEndDate || booking.eventDate,
         backgroundColor: getStatusColor(booking.status || 'booked'),
         borderColor: getStatusColor(booking.status || 'booked'),
-        resourceId: booking.hall ? getResourceId(booking.hall) : 'areca-i',
+        resourceId: resolveResourceId(booking.hall),
         extendedProps: {
           bookingId: booking.id,
           clientName: booking.clientName,
@@ -120,7 +159,7 @@ export default function FullCalendarView({ view, onEventClick }: FullCalendarVie
       end: `${session.sessionDate.split('T')[0]}T${session.endTime}:00`,
       backgroundColor: getStatusColor(booking.status || 'booked'),
       borderColor: getStatusColor(booking.status || 'booked'),
-      resourceId: getResourceId(session.venue),
+      resourceId: resolveResourceId(session.venue || booking.hall),
       extendedProps: {
         bookingId: booking.id,
         sessionId: session.id,
@@ -176,7 +215,7 @@ export default function FullCalendarView({ view, onEventClick }: FullCalendarVie
             ? 'resourceTimelineDay,resourceTimelineWeek' 
             : 'dayGridMonth,timeGridWeek,timeGridDay'
         }}
-        resources={view === 'timeline' ? VENUE_RESOURCES : undefined}
+        resources={view === 'timeline' ? venueResources : undefined}
         events={events}
         eventClick={handleEventClick}
         eventContent={renderEventContent}

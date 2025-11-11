@@ -347,11 +347,11 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
       const selectedPackage = menuPackages.find(pkg => pkg.id === packageId);
       if (selectedPackage) {
         const customData = customMenuItems[packageId];
-        const packagePrice = selectedPackage.price;
+        const basePackagePrice = customData?.customPackagePrice ?? selectedPackage.price;
         const additionalItemsTotal = customData?.selectedItems?.reduce((itemSum: number, item: any) => {
           return itemSum + (!item.isPackageItem ? (item.additionalPrice || 0) : 0);
         }, 0) || 0;
-        return sum + packagePrice + additionalItemsTotal;
+        return sum + basePackagePrice + additionalItemsTotal;
       }
       return sum;
     }, 0);
@@ -612,11 +612,11 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
       const selectedPackage = menuPackages.find(pkg => pkg.id === packageId);
       if (selectedPackage) {
         const customData = customMenuItems[packageId];
-        const packagePrice = selectedPackage.price;
+        const basePackagePrice = customData?.customPackagePrice ?? selectedPackage.price;
         const additionalItemsTotal = customData?.selectedItems?.reduce((itemSum: number, item: any) => {
           return itemSum + (!item.isPackageItem ? (item.additionalPrice || 0) : 0);
         }, 0) || 0;
-        return sum + packagePrice + additionalItemsTotal;
+        return sum + basePackagePrice + additionalItemsTotal;
       }
       return sum;
     }, 0);
@@ -652,8 +652,7 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
       if (selectedPackage) {
         const customData = customMenuItems[packageId];
         
-        // Use package price as base (not sum of individual items)
-        const packagePrice = selectedPackage.price;
+        const basePackagePrice = customData?.customPackagePrice ?? selectedPackage.price;
         
         // Calculate additional prices from custom items (additional items only, not package items)
         const additionalItemsTotal = customData?.selectedItems?.reduce((itemSum: number, item: any) => {
@@ -662,7 +661,7 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
         }, 0) || 0;
         
         // Package price + additional items
-        const totalBeforeGst = packagePrice + additionalItemsTotal;
+        const totalBeforeGst = basePackagePrice + additionalItemsTotal;
         return sum + totalBeforeGst;
       }
       return sum;
@@ -949,7 +948,8 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
                 customItems: [],
                 totalPackageItems: filteredItems.length,
                 excludedItemCount: 0,
-                totalDeduction: 0
+                totalDeduction: 0,
+                customPackagePrice: selectedPackage?.price || 0,
               };
               
               // Update state for future use
@@ -1032,17 +1032,29 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
         console.log(`🔍 Final selectedItems with quantities:`, selectedItems.map((item: any) => ({ name: item.name, quantity: item.quantity })));
         console.log(`🔍 Final customItems:`, customItems);
         
+        const fallbackPackagePrice = selectedPackage?.price || 0;
+        const rawCustomPackagePrice = customData?.customPackagePrice;
+        const parsedCustomPackagePrice = typeof rawCustomPackagePrice === 'number'
+          ? rawCustomPackagePrice
+          : typeof rawCustomPackagePrice === 'string'
+            ? parseFloat(rawCustomPackagePrice)
+            : NaN;
+        const customPackagePrice = Number.isFinite(parsedCustomPackagePrice) && parsedCustomPackagePrice >= 0
+          ? parsedCustomPackagePrice
+          : fallbackPackagePrice;
+
         const result = {
           id: selectedPackage?.id,
           name: selectedPackage?.name,
           type: selectedPackage?.type || 'non-veg',
-          price: selectedPackage?.price || 0,
+          price: customPackagePrice,
           gst: selectedPackage?.gst || 18,
           selectedItems: selectedItems,
           customItems: customItems,
           totalPackageItems: customData?.totalPackageItems || selectedItems.length || 0,
           excludedItemCount: customData?.excludedItemCount || 0,
-          totalDeduction: customData?.totalDeduction || 0
+          totalDeduction: customData?.totalDeduction || 0,
+          customPackagePrice,
         };
         
         console.log(`🔍 Final result for package ${packageId}:`, JSON.stringify(result, null, 2));
@@ -1186,10 +1198,16 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
     console.log('🔍 handleMenuItemsSave called with:', { selectedItems, editingMenuPackage });
     if (editingMenuPackage) {
       // Store the custom menu items for this package
+      const existingData = customMenuItems[editingMenuPackage.id!] || {};
       const newCustomMenuItems = {
         ...customMenuItems,
         [editingMenuPackage.id!]: {
           selectedItems,
+          customItems: existingData.customItems || [],
+          customPackagePrice: existingData.customPackagePrice ?? editingMenuPackage.price ?? 0,
+          totalPackageItems: existingData.totalPackageItems,
+          excludedItemCount: existingData.excludedItemCount,
+          totalDeduction: existingData.totalDeduction,
           packageId: editingMenuPackage.id
         }
       };
@@ -1199,31 +1217,68 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
     setEditingMenuPackage(null);
   };
 
-  const handleMenuSelectionSave = (selectedPackage: string, customMenuItemsData: any) => {
-    console.log('🔍 handleMenuSelectionSave called with:', { selectedPackage, customMenuItemsData });
-    console.log('🔍 customMenuItemsData.selectedItems:', customMenuItemsData?.selectedItems);
-    console.log('🔍 selectedItems count:', customMenuItemsData?.selectedItems?.length || 0);
-    
-    // Ensure selectedItems and customItems are arrays
-    const safeData = {
-      ...customMenuItemsData,
-      selectedItems: Array.isArray(customMenuItemsData?.selectedItems) ? customMenuItemsData.selectedItems : (customMenuItemsData?.selectedItems ? [customMenuItemsData.selectedItems] : []),
-      customItems: Array.isArray(customMenuItemsData?.customItems) ? customMenuItemsData.customItems : (customMenuItemsData?.customItems ? [customMenuItemsData.customItems] : []),
-    };
-    
-    console.log('🔍 Safe data being stored:', {
-      selectedItemsCount: safeData.selectedItems.length,
-      customItemsCount: safeData.customItems.length,
-      selectedItems: safeData.selectedItems
-    });
-    
-    setSelectedMenuPackages([selectedPackage]);
-    setCustomMenuItems({ [selectedPackage]: safeData });
+  const handleMenuSelectionSave = (selectedPackageIds: string[], customMenuItemsData: Record<string, any>) => {
+    console.log('🔍 handleMenuSelectionSave called with:', { selectedPackageIds, customMenuItemsData });
+
+    if (!selectedPackageIds || selectedPackageIds.length === 0) {
+      setSelectedMenuPackages([]);
+      setCustomMenuItems({});
+      setShowMenuSelectionFlow(false);
+      toast({
+        title: "Menu configuration cleared",
+        description: "No menu packages were selected for this quotation.",
+      });
+      return;
+    }
+
+    const normalizedCustomMenuItems = selectedPackageIds.reduce<Record<string, any>>((acc, packageId) => {
+      const originalMenuPackage = menuPackages.find(pkg => pkg.id === packageId);
+      const fallbackPackagePrice = originalMenuPackage?.price ?? 0;
+      const packageData = customMenuItemsData?.[packageId] || {};
+      const selectedItems = Array.isArray(packageData.selectedItems)
+        ? packageData.selectedItems
+        : packageData.selectedItems
+          ? [packageData.selectedItems]
+          : [];
+      const customItems = Array.isArray(packageData.customItems)
+        ? packageData.customItems
+        : packageData.customItems
+          ? [packageData.customItems]
+          : [];
+      const rawCustomPrice = packageData?.customPackagePrice;
+      const parsedCustomPrice = typeof rawCustomPrice === 'number'
+        ? rawCustomPrice
+        : typeof rawCustomPrice === 'string'
+          ? parseFloat(rawCustomPrice)
+          : NaN;
+      const sanitizedPrice = Number.isFinite(parsedCustomPrice) && parsedCustomPrice >= 0
+        ? parsedCustomPrice
+        : fallbackPackagePrice;
+
+      acc[packageId] = {
+        ...packageData,
+        selectedItems,
+        customItems,
+        packageId,
+        customPackagePrice: sanitizedPrice,
+      };
+      return acc;
+    }, {});
+
+    console.log('🔍 Normalized custom menu items:', normalizedCustomMenuItems);
+
+    setSelectedMenuPackages(selectedPackageIds);
+    setCustomMenuItems(normalizedCustomMenuItems);
     setShowMenuSelectionFlow(false);
-    
+
+    const totalItemsSelected = selectedPackageIds.reduce((total, packageId) => {
+      const packageItems = normalizedCustomMenuItems[packageId]?.selectedItems || [];
+      return total + packageItems.length;
+    }, 0);
+
     toast({
       title: "Success",
-      description: `Menu package configured with ${safeData.selectedItems.length} items`,
+      description: `Configured ${selectedPackageIds.length} menu package${selectedPackageIds.length > 1 ? 's' : ''} with ${totalItemsSelected} total items`,
     });
   };
 
@@ -1316,10 +1371,13 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
       // Set custom menu items if any
       const menuItemsMap: Record<string, any> = {};
       selectedPackage.menuPackages.forEach(pkg => {
-        if (pkg.id && (pkg.selectedItems || pkg.customItems)) {
+        if (pkg.id) {
+          const originalMenuPackage = menuPackages.find(mp => mp.id === pkg.id);
+          const fallbackPackagePrice = pkg.customPackagePrice ?? pkg.price ?? originalMenuPackage?.price ?? 0;
           menuItemsMap[pkg.id] = {
             selectedItems: pkg.selectedItems || [],
             customItems: pkg.customItems || [],
+            customPackagePrice: fallbackPackagePrice,
           };
         }
       });
@@ -1365,12 +1423,23 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
         menuPackages: selectedMenuPackages.map(packageId => {
           const selectedPackage = menuPackages.find(pkg => pkg.id === packageId);
           const customData = customMenuItems[packageId];
+          const fallbackPackagePrice = selectedPackage?.price || 0;
+          const rawCustomPackagePrice = customData?.customPackagePrice;
+          const parsedCustomPackagePrice = typeof rawCustomPackagePrice === 'number'
+            ? rawCustomPackagePrice
+            : typeof rawCustomPackagePrice === 'string'
+              ? parseFloat(rawCustomPackagePrice)
+              : NaN;
+          const customPackagePrice = Number.isFinite(parsedCustomPackagePrice) && parsedCustomPackagePrice >= 0
+            ? parsedCustomPackagePrice
+            : fallbackPackagePrice;
           
           return {
             id: selectedPackage?.id,
             name: selectedPackage?.name,
             type: selectedPackage?.type || 'non-veg',
-            price: selectedPackage?.price || 0,
+            price: customPackagePrice,
+            customPackagePrice,
             gst: selectedPackage?.gst || 18,
             selectedItems: customData?.selectedItems || [],
             customItems: customData?.customItems || [],
@@ -1661,9 +1730,7 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
                       const totalDeduction = customData?.totalDeduction || 0; // Actual price of excluded items
                       
                       // Calculate selected package items price
-                      const selectedPackageItemsPrice = customData?.selectedItems?.reduce((sum: number, item: any) => {
-                        return sum + (item.isPackageItem ? (item.price || 0) : 0);
-                      }, 0) || selectedPackage.price;
+                      const basePackagePrice = customData?.customPackagePrice ?? selectedPackage.price;
                       
                       // Calculate additional price from custom items (additional items only)
                       const additionalPrice = customData?.selectedItems?.reduce((sum: number, item: any) => {
@@ -1672,7 +1739,7 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
                       }, 0) || 0;
                       
                       // Selected items price + additional items (without GST - GST will be added in final quote)
-                      const totalPrice = selectedPackageItemsPrice + additionalPrice;
+                      const totalPrice = basePackagePrice + additionalPrice;
                       
                       const packageItemsCount = customData?.selectedItems?.filter((item: any) => item.isPackageItem).length || 0;
                       const additionalItemsCount = customData?.selectedItems?.filter((item: any) => !item.isPackageItem).length || 0;
@@ -1692,7 +1759,7 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
                           <div className="grid grid-cols-2 gap-3 text-sm">
                             <div>
                               <span className="text-green-700">Base Price:</span>
-                              <span className="ml-2 font-medium">₹{selectedPackage.price}</span>
+                              <span className="ml-2 font-medium">₹{basePackagePrice}</span>
                             </div>
                             {totalDeduction > 0 && (
                               <div>
@@ -2544,6 +2611,8 @@ export default function QuotationForm({ open, onOpenChange, enquiry, editingQuot
         open={showMenuSelectionFlow}
         onOpenChange={setShowMenuSelectionFlow}
         onSave={handleMenuSelectionSave}
+        initialSelectedPackages={selectedMenuPackages}
+        initialCustomMenuItems={customMenuItems}
       />
 
       {/* Quotation Preview Dialog */}

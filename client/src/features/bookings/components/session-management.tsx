@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -11,6 +11,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { BookingWithRelations } from "@/types";
 import { useSessionConflicts } from "../hooks/use-session-conflicts";
 import { TimePicker } from "@/components/ui/time-picker";
+import { useVenues } from "@/hooks/useVenues";
 
 interface Session {
   id: string;
@@ -31,17 +32,6 @@ interface SessionManagementProps {
   eventDuration: number;
 }
 
-const VENUE_OPTIONS = [
-  "Areca I - The Banquet Hall",
-  "Areca II", 
-  "Oasis - The Lawn",
-  "Pool-side Lawn",
-  "3rd floor Lounge",
-  "Board Room",
-  "Amber Restaurant",
-  "Sway Lounge Bar"
-];
-
 const SESSION_NAME_OPTIONS = [
   "Breakfast",
   "Lunch", 
@@ -59,6 +49,12 @@ export default function SessionManagement({
   const { data: existingBookings = [] } = useQuery<BookingWithRelations[]>({
     queryKey: ["/api/bookings"],
   });
+  const { data: venues = [], isLoading: venuesLoading, isError: venuesError } = useVenues();
+
+  const venueOptions = useMemo(
+    () => venues.map((venue) => venue.name),
+    [venues]
+  );
 
   // Helper function to calculate duration between two times
   const calculateDuration = (startTime: string, endTime: string): string => {
@@ -300,6 +296,7 @@ export default function SessionManagement({
                     <Select 
                       value={session.venue} 
                       onValueChange={(value) => updateSession(session.id, 'venue', value)}
+                      disabled={venuesLoading || venuesError}
                     >
                       <SelectTrigger 
                         data-testid={`session-venue-${index}`}
@@ -308,9 +305,21 @@ export default function SessionManagement({
                         <SelectValue placeholder="Select venue" />
                       </SelectTrigger>
                       <SelectContent>
-                        {VENUE_OPTIONS.map(venue => (
-                          <SelectItem key={venue} value={venue}>{venue}</SelectItem>
-                        ))}
+                        {venueOptions.length === 0 ? (
+                          <SelectItem disabled value="no-venues">
+                            {venuesLoading
+                              ? "Loading venues..."
+                              : venuesError
+                                ? "Failed to load venues"
+                                : "No venues available"}
+                          </SelectItem>
+                        ) : (
+                          venueOptions.map((venue) => (
+                            <SelectItem key={venue} value={venue}>
+                              {venue}
+                            </SelectItem>
+                          ))
+                        )}
                       </SelectContent>
                     </Select>
                     {!session.venue?.trim() && (

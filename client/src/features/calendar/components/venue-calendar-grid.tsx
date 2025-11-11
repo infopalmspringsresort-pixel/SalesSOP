@@ -7,18 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ChevronLeft, ChevronRight, Calendar, MapPin, Clock, Users, Eye, MoreHorizontal } from "lucide-react";
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths } from "date-fns";
-
-// Venue options based on existing system
-const VENUES = [
-  { id: 'areca-i', name: 'Areca I - The Banquet Hall' },
-  { id: 'areca-ii', name: 'Areca II' },
-  { id: 'oasis-lawn', name: 'Oasis - The Lawn' },
-  { id: 'poolside-lawn', name: 'Pool-side Lawn' },
-  { id: 'lounge-3f', name: '3rd floor Lounge' },
-  { id: 'board-room', name: 'Board Room' },
-  { id: 'amber-restaurant', name: 'Amber Restaurant' },
-  { id: 'sway-lounge', name: 'Sway Lounge Bar' },
-];
+import { useVenues } from "@/hooks/useVenues";
 
 const EVENT_TYPES = [
   'wedding', 'corporate', 'birthday', 'conference', 'anniversary', 
@@ -117,6 +106,16 @@ export default function VenueCalendarGrid() {
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedDayBookings, setSelectedDayBookings] = useState<VenueBooking[]>([]);
   const { isMobile, isTablet } = useResponsive();
+  const { data: venues = [], isLoading: venuesLoading, isError: venuesError } = useVenues();
+
+  const venueOptions = useMemo(
+    () =>
+      venues.map((venue) => ({
+        id: venue.id ?? venue.name,
+        name: venue.name,
+      })),
+    [venues]
+  );
 
   // Handle "View All" click
   const handleViewAllClick = (date: Date, dayBookings: VenueBooking[]) => {
@@ -402,20 +401,34 @@ export default function VenueCalendarGrid() {
         </div>
         
         <div className="flex flex-col sm:flex-row gap-3">
-          <Select value={selectedVenue} onValueChange={setSelectedVenue}>
+          <Select
+            value={selectedVenue}
+            onValueChange={setSelectedVenue}
+            disabled={venuesLoading || venuesError}
+          >
             <SelectTrigger className="w-full sm:w-64">
               <SelectValue placeholder="Select venue" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Venues</SelectItem>
-              {VENUES.map(venue => (
-                <SelectItem key={venue.id} value={venue.name}>
-                  <div className="flex items-center gap-2">
-                    <MapPin className="w-4 h-4" />
-                    <span>{venue.name}</span>
-                  </div>
+              {venueOptions.length === 0 ? (
+                <SelectItem disabled value="no-venues">
+                  {venuesLoading
+                    ? "Loading venues..."
+                    : venuesError
+                      ? "Failed to load venues"
+                      : "No venues available"}
                 </SelectItem>
-              ))}
+              ) : (
+                venueOptions.map((venue) => (
+                  <SelectItem key={venue.id} value={venue.name}>
+                    <div className="flex items-center gap-2">
+                      <MapPin className="w-4 h-4" />
+                      <span>{venue.name}</span>
+                    </div>
+                  </SelectItem>
+                ))
+              )}
             </SelectContent>
           </Select>
           

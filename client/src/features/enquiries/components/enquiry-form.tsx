@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
@@ -30,6 +30,29 @@ const toTitleCase = (str: string): string => {
     .join(' ');
 };
 
+const formatDateInput = (value: Date | string | null | undefined) => {
+  if (!value) return "";
+  const date = value instanceof Date ? value : new Date(value);
+  if (isNaN(date.getTime())) return "";
+  return date.toISOString().split('T')[0];
+};
+
+const formatDateArray = (values: any, fallback?: string): string[] => {
+  if (!Array.isArray(values)) {
+    return fallback ? [fallback] : [];
+  }
+
+  const formatted = values
+    .map((date) => formatDateInput(date))
+    .filter((value): value is string => Boolean(value));
+
+  if (formatted.length === 0 && fallback) {
+    return [fallback];
+  }
+
+  return formatted;
+};
+
 const sessionSchema = insertEnquirySessionSchema.extend({
   id: z.string(),
   sessionDate: z.date(),
@@ -38,9 +61,9 @@ const sessionSchema = insertEnquirySessionSchema.extend({
 const formSchema = insertEnquirySchema.extend({
   enquiryNumber: z.string().optional(), // Make enquiryNumber optional since it's auto-generated
   enquiryDate: z.string(),
-  eventDate: z.string().optional().refine(
+  eventDate: z.string({ required_error: "Event date is required" }).min(1, "Event date is required").refine(
     (date) => {
-      if (!date) return true; // Allow empty event date
+      if (!date) return false;
       const eventDate = new Date(date);
       const today = new Date();
       today.setHours(0, 0, 0, 0); // Reset time to start of day
@@ -93,10 +116,17 @@ interface EnquiryFormProps {
 export default function EnquiryForm({ open, onOpenChange, editingEnquiry, prefilledData }: EnquiryFormProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [tentativeDates, setTentativeDates] = useState<string[]>([]);
-  const [eventDuration, setEventDuration] = useState(1);
-  const [sessions, setSessions] = useState<z.infer<typeof sessionSchema>[]>([]);
   const { user } = useAuth();
+
+  const initialEventDate = formatDateInput(editingEnquiry?.eventDate);
+  const initialEventEndDate = formatDateInput(editingEnquiry?.eventEndDate);
+  const initialEventDuration = editingEnquiry?.eventDuration || 1;
+  const initialEventDates = formatDateArray(editingEnquiry?.eventDates, initialEventDate || undefined);
+  const initialCustomDuration = initialEventDuration > 3 ? initialEventDuration : 4;
+
+  const [tentativeDates, setTentativeDates] = useState<string[]>([]);
+  const [sessions, setSessions] = useState<z.infer<typeof sessionSchema>[]>([]);
+  const [customDuration, setCustomDuration] = useState<number>(initialCustomDuration);
   const [showCollisionDialog, setShowCollisionDialog] = useState(false);
   const [collisionMessage, setCollisionMessage] = useState<string>("");
   const [isSearchingPhone, setIsSearchingPhone] = useState(false);
@@ -138,10 +168,10 @@ export default function EnquiryForm({ open, onOpenChange, editingEnquiry, prefil
     numberOfRooms: editingEnquiry?.numberOfRooms ?? null,
     source: editingEnquiry?.source || "Walk-in",
     notes: editingEnquiry?.notes || "",
-    eventDate: editingEnquiry?.eventDate ? new Date(editingEnquiry.eventDate).toISOString().split('T')[0] : "",
-    eventEndDate: editingEnquiry?.eventEndDate ? new Date(editingEnquiry.eventEndDate).toISOString().split('T')[0] : "",
-    eventDuration: editingEnquiry?.eventDuration || 1,
-    eventDates: editingEnquiry?.eventDates || [],
+    eventDate: initialEventDate,
+    eventEndDate: initialEventEndDate,
+    eventDuration: initialEventDuration,
+    eventDates: initialEventDates,
     tentativeDates: editingEnquiry?.tentativeDates || [],
     salespersonId: editingEnquiry?.salespersonId || (user && typeof user === 'object' && 'id' in user ? user.id as string : undefined) || undefined,
     sessions: editingEnquiry?.sessions || [],
@@ -259,6 +289,11 @@ export default function EnquiryForm({ open, onOpenChange, editingEnquiry, prefil
           })
         : [];
 
+      const defaultEventDate = formatDateInput(editingEnquiry?.eventDate);
+      const defaultEventDuration = editingEnquiry?.eventDuration || 1;
+      const defaultEventEndDate = formatDateInput(editingEnquiry?.eventEndDate);
+      const defaultEventDates = formatDateArray(editingEnquiry?.eventDates, defaultEventDate || undefined);
+
       const defaultValues = {
         enquiryDate: editingEnquiry ? new Date(editingEnquiry.enquiryDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
         clientName: editingEnquiry?.clientName || prefilledData?.clientName || "",
@@ -270,7 +305,10 @@ export default function EnquiryForm({ open, onOpenChange, editingEnquiry, prefil
         numberOfRooms: editingEnquiry?.numberOfRooms ?? null,
         source: editingEnquiry?.source || "Walk-in",
         notes: editingEnquiry?.notes || "",
-        eventDate: editingEnquiry?.eventDate ? new Date(editingEnquiry.eventDate).toISOString().split('T')[0] : "",
+        eventDate: defaultEventDate,
+        eventEndDate: defaultEventEndDate,
+        eventDuration: defaultEventDuration,
+        eventDates: defaultEventDates,
         tentativeDates: tentativeDatesStrings,
         salespersonId: editingEnquiry?.salespersonId || (isSalespersonOrManager ? ((user as any)?.id || (user as any)?._id) : undefined),
         createdBy: editingEnquiry?.createdBy || (user as any)?.id || (user as any)?._id || '',
@@ -281,6 +319,7 @@ export default function EnquiryForm({ open, onOpenChange, editingEnquiry, prefil
       form.reset(defaultValues);
       setTentativeDates(tentativeDatesStrings);
       form.setValue('tentativeDates', tentativeDatesStrings);
+      setCustomDuration(defaultEventDuration > 3 ? defaultEventDuration : 4);
     }
   }, [open, editingEnquiry, prefilledData, form]);
 
@@ -289,12 +328,132 @@ export default function EnquiryForm({ open, onOpenChange, editingEnquiry, prefil
     if (!open) {
       setTentativeDates([]);
       setSessions([]);
-      setEventDuration(1);
       form.reset(initialDefaults);
       setHasPrefilled(false);
       setLastSearchedPhone("");
+      setCustomDuration(initialCustomDuration);
     }
   }, [open]);
+
+  const watchedEventDate = useWatch({
+    control: form.control,
+    name: "eventDate",
+  });
+
+  const watchedEventDuration = useWatch({
+    control: form.control,
+    name: "eventDuration",
+  });
+
+  const watchedEventDates = useWatch({
+    control: form.control,
+    name: "eventDates",
+  }) as string[] | undefined;
+
+  const watchedEventEndDate = useWatch({
+    control: form.control,
+    name: "eventEndDate",
+  });
+
+  const resolvedEventDuration = useMemo(() => {
+    const parsed = Number(watchedEventDuration);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+  }, [watchedEventDuration]);
+
+  const eventDatesKey = useMemo(
+    () => (Array.isArray(watchedEventDates) ? watchedEventDates.join("|") : ""),
+    [watchedEventDates]
+  );
+
+  const resolvedEventDates = useMemo(() => {
+    if (!Array.isArray(watchedEventDates)) return [];
+    return watchedEventDates
+      .map((date) => {
+        const parsed = new Date(date);
+        if (isNaN(parsed.getTime())) {
+          return null;
+        }
+        return parsed.toISOString().split('T')[0];
+      })
+      .filter((value): value is string => Boolean(value));
+  }, [eventDatesKey]);
+
+  useEffect(() => {
+    if (resolvedEventDuration > 3) {
+      setCustomDuration((prev) => (prev === resolvedEventDuration ? prev : resolvedEventDuration));
+    } else {
+      const fallback = Math.max(resolvedEventDuration, 4);
+      setCustomDuration((prev) => (prev === fallback ? prev : fallback));
+    }
+  }, [resolvedEventDuration]);
+
+  useEffect(() => {
+    const duration = resolvedEventDuration || 1;
+
+    if (!watchedEventDate) {
+      const currentEventDates = form.getValues("eventDates") as string[] | undefined;
+      if (currentEventDates && currentEventDates.length > 0) {
+        form.setValue("eventDates", [], { shouldDirty: false, shouldValidate: false });
+      }
+      const currentEndDate = form.getValues("eventEndDate") as string | undefined;
+      if (currentEndDate) {
+        form.setValue("eventEndDate", "", { shouldDirty: false, shouldValidate: false });
+      }
+      return;
+    }
+
+    const startDate = new Date(watchedEventDate);
+    if (isNaN(startDate.getTime())) {
+      return;
+    }
+
+    const dates: string[] = [];
+    for (let i = 0; i < duration; i++) {
+      const date = new Date(startDate);
+      date.setDate(startDate.getDate() + i);
+      dates.push(date.toISOString().split('T')[0]);
+    }
+
+    const currentEventDates = form.getValues("eventDates") as string[] | undefined;
+    const shouldUpdateDates =
+      !currentEventDates ||
+      currentEventDates.length !== dates.length ||
+      currentEventDates.some((value, index) => value !== dates[index]);
+
+    if (shouldUpdateDates) {
+      form.setValue("eventDates", dates, { shouldDirty: false, shouldValidate: false });
+    }
+
+    const currentEndDate = form.getValues("eventEndDate") as string | undefined;
+    const targetEndDate = duration > 1 ? dates[dates.length - 1] : "";
+    if (currentEndDate !== targetEndDate) {
+      form.setValue("eventEndDate", targetEndDate, { shouldDirty: false, shouldValidate: false });
+    }
+  }, [form, resolvedEventDuration, watchedEventDate]);
+
+  useEffect(() => {
+    if (!resolvedEventDates.length) return;
+
+    setSessions((prevSessions) => {
+      let changed = false;
+      const updated = prevSessions.map((session) => {
+        if (!(session.sessionDate instanceof Date) || isNaN(session.sessionDate.getTime())) {
+          changed = true;
+          return { ...session, sessionDate: new Date(resolvedEventDates[0]) };
+        }
+
+        const sessionDateStr = session.sessionDate.toISOString().split('T')[0];
+        if (!resolvedEventDates.includes(sessionDateStr)) {
+          changed = true;
+          return { ...session, sessionDate: new Date(resolvedEventDates[0]) };
+        }
+
+        return session;
+      });
+
+      return changed ? updated : prevSessions;
+    });
+  }, [resolvedEventDates, setSessions]);
 
   // Watch contact number for prefilling (only for new enquiries)
   const contactNumber = useWatch({
@@ -569,13 +728,14 @@ export default function EnquiryForm({ open, onOpenChange, editingEnquiry, prefil
                   name="eventDate"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Event Date</FormLabel>
+                      <FormLabel>Event Start Date *</FormLabel>
                       <FormControl>
-                        <Input 
-                          type="date" 
+                        <Input
+                          type="date"
                           min={new Date().toISOString().split('T')[0]}
-                          {...field} 
-                          data-testid="input-event-date" 
+                          required
+                          {...field}
+                          data-testid="input-event-date"
                         />
                       </FormControl>
                       <FormMessage />
@@ -583,6 +743,104 @@ export default function EnquiryForm({ open, onOpenChange, editingEnquiry, prefil
                   )}
                 />
               </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+                <FormField
+                  control={form.control}
+                  name="eventDuration"
+                  render={({ field }) => {
+                    const isMultiDuration = resolvedEventDuration > 3;
+                    const selectValue = isMultiDuration ? "multi" : (resolvedEventDuration || 1).toString();
+                    return (
+                      <FormItem>
+                        <FormLabel>Number of Event Days *</FormLabel>
+                        <Select
+                          value={selectValue}
+                          onValueChange={(value) => {
+                            if (value === "multi") {
+                              const multiValue = Math.max(customDuration || 4, 4);
+                              setCustomDuration(multiValue);
+                              field.onChange(multiValue);
+                            } else {
+                              const parsed = parseInt(value, 10);
+                              setCustomDuration(Math.max(parsed, 4));
+                              field.onChange(parsed);
+                            }
+                          }}
+                        >
+                          <FormControl>
+                            <SelectTrigger data-testid="select-event-duration">
+                              <SelectValue placeholder="Select duration" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="1">Single Day</SelectItem>
+                            <SelectItem value="2">2 Days</SelectItem>
+                            <SelectItem value="3">3 Days</SelectItem>
+                            <SelectItem value="multi">Multiple Days</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        { (resolvedEventDuration > 3 || selectValue === "multi") && (
+                          <div className="mt-3 space-y-2">
+                            <Label htmlFor="custom-event-duration">Specify total number of days *</Label>
+                            <Input
+                              id="custom-event-duration"
+                              type="number"
+                              min={4}
+                              max={30}
+                              value={customDuration}
+                              onChange={(e) => {
+                                const raw = parseInt(e.target.value, 10);
+                                const sanitized = Number.isFinite(raw) ? Math.min(Math.max(raw, 4), 30) : 4;
+                                setCustomDuration(sanitized);
+                                field.onChange(sanitized);
+                              }}
+                            />
+                            <p className="text-xs text-muted-foreground">
+                              Enter 4 or more days for larger events.
+                            </p>
+                          </div>
+                        )}
+                        <FormMessage />
+                      </FormItem>
+                    );
+                  }}
+                />
+
+                {resolvedEventDuration > 1 && (
+                  <FormField
+                    control={form.control}
+                    name="eventEndDate"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Event End Date</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="date"
+                            {...field}
+                            value={field.value || ""}
+                            readOnly
+                            className="bg-muted cursor-not-allowed"
+                            tabIndex={-1}
+                            data-testid="input-event-end-date"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
+              </div>
+
+              {resolvedEventDuration > 1 && resolvedEventDates.length > 0 && (
+                <div className="flex flex-wrap gap-2 bg-muted/40 border border-dashed border-muted rounded-md p-3 text-sm text-muted-foreground">
+                  {resolvedEventDates.map((date, index) => (
+                    <span key={date} className="px-3 py-1 bg-background rounded-full border border-muted">
+                      Day {index + 1}: {new Date(date).toLocaleDateString()}
+                    </span>
+                  ))}
+                </div>
+              )}
 
               {/* Tentative Dates Section */}
               <div className="space-y-4">
@@ -839,9 +1097,14 @@ export default function EnquiryForm({ open, onOpenChange, editingEnquiry, prefil
                 <EnquirySessionManagement
                   sessions={sessions}
                   setSessions={setSessions}
-                  eventStartDate={form.watch("eventDate")}
-                  eventEndDate={form.watch("eventEndDate")}
-                  eventDuration={eventDuration}
+                  eventStartDate={watchedEventDate && watchedEventDate.length > 0 ? watchedEventDate : undefined}
+                  eventEndDate={
+                    resolvedEventDuration > 1 && watchedEventEndDate && watchedEventEndDate.length > 0
+                      ? watchedEventEndDate
+                      : undefined
+                  }
+                  eventDuration={resolvedEventDuration}
+                  eventDates={resolvedEventDates}
                 />
               </div>
 
